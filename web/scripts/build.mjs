@@ -30,7 +30,7 @@ require("./${entry}.js");
 for (const name of rendererModules) outputs.set(`${name}.js`, compile(name));
 for (const name of ["fixture.html", "index.html", "viewer.css"]) outputs.set(name, fromSource(name));
 outputs.set("fixture-bundle.js", bundle("fixture", []));
-outputs.set("viewer-bundle.js", bundle("viewer", ["wire", "feed", "viewer-terrain"]));
+outputs.set("viewer-bundle.js", bundle("viewer", ["wire", "feed", "viewer-terrain", "viewer-hud"]));
 
 if (process.argv.includes("--check")) {
   const names = readdirSync(dist).sort();

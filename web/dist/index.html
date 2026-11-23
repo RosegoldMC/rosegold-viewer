@@ -28,7 +28,32 @@
         <output id="renderer-status" aria-live="polite" hidden></output>
       </div>
     </header>
-    <div class="viewport"><canvas aria-label="Terrain from the bot's viewpoint"></canvas></div>
+    <div class="viewport">
+      <canvas aria-label="Terrain from the bot's viewpoint"></canvas>
+      <div id="hud" aria-label="Player status" hidden>
+        <div id="mining" hidden>
+          <label for="mining-progress">Breaking</label>
+          <progress id="mining-progress" max="100" value="0"></progress>
+          <output for="mining-progress">0%</output>
+        </div>
+        <dl id="hud-stats">
+          <div><dt>Health</dt><dd id="hud-health">0</dd></div>
+          <div><dt>Food</dt><dd id="hud-food">0</dd><dd class="max">/ 20</dd></div>
+        </dl>
+        <p id="hud-held">Empty hand</p>
+        <ol id="hud-slots" aria-label="Hotbar">
+          <li><span class="key">1</span><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">2</span><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">3</span><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">4</span><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">5</span><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">6</span><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">7</span><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">8</span><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">9</span><span class="item"></span><span class="count"></span></li>
+        </ol>
+      </div>
+    </div>
   </main>
 </body>
 </html>

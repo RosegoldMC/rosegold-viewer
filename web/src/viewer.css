@@ -27,3 +27,27 @@ button:disabled { opacity: 0.5; cursor: default; }
 #renderer-status { color: var(--warning); }
 .viewport { min-height: 300px; position: relative; border-top: 1px solid var(--border); }
 canvas { width: 100%; height: 100%; position: absolute; display: block; background: var(--sky); }
+#hud { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 0.375rem; padding: 0 0.5rem 0.75rem; box-sizing: border-box; color: var(--text); }
+#hud[hidden], #mining[hidden] { display: none; }
+#hud * { pointer-events: none; }
+#hud::before { content: ""; position: absolute; left: 50%; top: 50%; width: 1.25rem; height: 1.25rem; transform: translate(-50%, -50%); background:
+  linear-gradient(var(--text), var(--text)) center / 2px 100% no-repeat,
+  linear-gradient(var(--text), var(--text)) center / 100% 2px no-repeat; filter: drop-shadow(0 0 2px var(--page)); }
+#hud > * { background: color-mix(in srgb, var(--page) 82%, transparent); border-radius: 0.375rem; }
+#mining { position: absolute; left: 50%; top: calc(50% + 1.25rem); transform: translateX(-50%); display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0.5rem; border: 1px solid var(--border); font-size: 0.875rem; }
+#mining label, #mining output { display: inline; font-variant-numeric: tabular-nums; }
+#mining output { min-width: 3ch; text-align: right; }
+progress { width: 7rem; height: 0.75rem; accent-color: var(--accent); }
+#hud-stats { display: flex; gap: 1.25rem; margin: 0; padding: 0.25rem 0.75rem; font-size: 1rem; }
+#hud-stats div { display: flex; align-items: baseline; gap: 0.375rem; }
+#hud-stats dt { color: var(--muted); font-size: 0.875rem; }
+#hud-stats dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+#hud-stats dd.max { color: var(--muted); font-weight: 400; margin-left: -0.25rem; }
+#hud-held { margin: 0; padding: 0.125rem 0.625rem; color: var(--text); font-size: 0.875rem; }
+#hud-slots { list-style: none; margin: 0; padding: 0.25rem; display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 0.25rem; width: min(100%, 36rem); box-sizing: border-box; }
+#hud-slots li { position: relative; aspect-ratio: 1; min-width: 0; box-sizing: border-box; border: 1px solid var(--border); border-radius: 0.25rem; background: var(--sky); display: flex; flex-direction: column; justify-content: flex-end; padding: 0.125rem; overflow: hidden; }
+#hud-slots li[aria-current] { border: 3px solid var(--text); outline: 2px solid var(--accent); outline-offset: 1px; }
+#hud-slots .key { position: absolute; top: 0.125rem; left: 0.25rem; color: var(--muted); font-size: 0.625rem; }
+#hud-slots .item { font-size: 0.5625rem; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#hud-slots .count { position: absolute; top: 0.125rem; right: 0.25rem; font-size: 0.75rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+@media (max-width: 30rem) { #hud-slots .item { display: none; } #hud-slots .key { font-size: 0.5rem; } }

@@ -14,6 +14,19 @@ export interface Cursor {
   seq: number;
 }
 
+export interface HudSlot {
+  item: string;
+  count: number;
+}
+
+export interface Hud {
+  health: number;
+  food: number;
+  selected: number;
+  slots: (HudSlot | null)[];
+  mining: number | null;
+}
+
 export type SectionUpdate = {
   position: SectionPosition;
 } & ({ kind: "states"; states: Uint16Array } | { kind: "air" | "unloaded" });
@@ -26,6 +39,7 @@ export type TerrainBatch = Cursor & (
   look?: Vec3;
   air?: number[];
   section?: SectionUpdate;
+  hud?: Hud;
 };
 
 const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
@@ -80,6 +94,29 @@ function decodePaths(value: unknown): PathOverlay[] {
   });
 }
 
+function integer(value: unknown, min: number, max: number): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min || value > max) return invalid();
+  return value;
+}
+
+function decodeHud(value: unknown): Hud {
+  const { health, food, selected, slots, mining } = object(value);
+  if (typeof health !== "number" || !Number.isFinite(health) || health < 0 || health > 2048) return invalid();
+  if (!Array.isArray(slots) || slots.length !== 9) return invalid();
+  return {
+    health,
+    food: integer(food, 0, 20),
+    selected: integer(selected, 0, 8),
+    slots: slots.map(entry => {
+      if (entry === null) return null;
+      const { item, count } = object(entry);
+      if (typeof item !== "string" || !/^[a-z0-9_]{1,64}$/.test(item)) return invalid();
+      return { item, count: integer(count, 1, 999) };
+    }),
+    mining: mining === null ? null : integer(mining, 0, 99),
+  };
+}
+
 export function decodeLease(bytes: Uint8Array): string {
   const { lease } = json(bytes);
   if (typeof lease !== "string" || !/^(?:[0-9a-f]{2}){1,64}$/i.test(lease)) return invalid();
@@ -105,6 +142,10 @@ export function decodeBatch(bytes: Uint8Array): TerrainBatch {
   } else {
     if (header.paths !== undefined) return invalid();
     batch = { ...cursor, status };
+  }
+  if (header.hud !== undefined) {
+    if (status !== "ready") return invalid();
+    batch.hud = decodeHud(header.hud);
   }
   if (header.center !== undefined) batch.center = position(header.center);
   if (header.eye !== undefined) batch.eye = vec3(header.eye);

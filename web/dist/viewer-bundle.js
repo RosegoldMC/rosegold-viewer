@@ -545,6 +545,32 @@ function decodePaths(value) {
         };
     });
 }
+function integer(value, min, max) {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < min || value > max)
+        return invalid();
+    return value;
+}
+function decodeHud(value) {
+    const { health, food, selected, slots, mining } = object(value);
+    if (typeof health !== "number" || !Number.isFinite(health) || health < 0 || health > 2048)
+        return invalid();
+    if (!Array.isArray(slots) || slots.length !== 9)
+        return invalid();
+    return {
+        health,
+        food: integer(food, 0, 20),
+        selected: integer(selected, 0, 8),
+        slots: slots.map(entry => {
+            if (entry === null)
+                return null;
+            const { item, count } = object(entry);
+            if (typeof item !== "string" || !/^[a-z0-9_]{1,64}$/.test(item))
+                return invalid();
+            return { item, count: integer(count, 1, 999) };
+        }),
+        mining: mining === null ? null : integer(mining, 0, 99),
+    };
+}
 function decodeLease(bytes) {
     const { lease } = json(bytes);
     if (typeof lease !== "string" || !/^(?:[0-9a-f]{2}){1,64}$/i.test(lease))
@@ -576,6 +602,11 @@ function decodeBatch(bytes) {
         if (header.paths !== undefined)
             return invalid();
         batch = { ...cursor, status };
+    }
+    if (header.hud !== undefined) {
+        if (status !== "ready")
+            return invalid();
+        batch.hud = decodeHud(header.hud);
     }
     if (header.center !== undefined)
         batch.center = position(header.center);
@@ -898,11 +929,55 @@ class ViewerTerrain {
 }
 exports.ViewerTerrain = ViewerTerrain;
   },
+  "./viewer-hud.js": (require, exports) => {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ViewerHud = void 0;
+exports.itemLabel = itemLabel;
+exports.heldLabel = heldLabel;
+function itemLabel(item) {
+    return item.split("_").filter(Boolean).map(word => word[0].toUpperCase() + word.slice(1)).join(" ");
+}
+function heldLabel(hud) {
+    const slot = hud.slots[hud.selected];
+    if (!slot)
+        return "Empty hand";
+    return slot.count > 1 ? `${itemLabel(slot.item)} ×${slot.count}` : itemLabel(slot.item);
+}
+class ViewerHud {
+    sink;
+    epoch = null;
+    current = null;
+    constructor(sink) {
+        this.sink = sink;
+    }
+    reset() {
+        this.epoch = null;
+        if (this.current)
+            this.sink.show(null);
+        this.current = null;
+    }
+    apply(batch) {
+        if (batch.status !== "ready" || batch.epoch !== this.epoch) {
+            this.reset();
+            if (batch.status !== "ready")
+                return;
+            this.epoch = batch.epoch;
+        }
+        if (!batch.hud)
+            return;
+        this.current = batch.hud;
+        this.sink.show(batch.hud);
+    }
+}
+exports.ViewerHud = ViewerHud;
+  },
   "./viewer.js": (require, exports) => {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const feed_js_1 = require("./feed.js");
 const renderer_js_1 = require("./renderer.js");
+const viewer_hud_js_1 = require("./viewer-hud.js");
 const viewer_terrain_js_1 = require("./viewer-terrain.js");
 const canvas = document.querySelector("canvas");
 const form = document.querySelector("form");
@@ -911,6 +986,14 @@ const connect = document.querySelector("#connect");
 const disconnect = document.querySelector("#disconnect");
 const feedStatus = document.querySelector("#feed-status");
 const rendererStatus = document.querySelector("#renderer-status");
+const hudRoot = document.querySelector("#hud");
+const hudHealth = document.querySelector("#hud-health");
+const hudFood = document.querySelector("#hud-food");
+const hudHeld = document.querySelector("#hud-held");
+const hudSlots = [...document.querySelectorAll("#hud-slots li")];
+const mining = document.querySelector("#mining");
+const miningBar = mining.querySelector("progress");
+const miningText = mining.querySelector("output");
 const labels = {
     detached: "Disconnected",
     pairing: "Pairing…",
@@ -930,9 +1013,46 @@ const terrain = new viewer_terrain_js_1.ViewerTerrain(air => new renderer_js_1.T
         rendererStatus.value = status === "lost" ? "WebGL2 context lost. Waiting for recovery…" : "WebGL2 unavailable";
     },
 }));
+const hud = new viewer_hud_js_1.ViewerHud({
+    show(state) {
+        hudRoot.hidden = !state;
+        if (!state) {
+            mining.hidden = true;
+            return;
+        }
+        hudHealth.textContent = String(Math.round(state.health * 10) / 10);
+        hudFood.textContent = String(state.food);
+        hudHeld.textContent = (0, viewer_hud_js_1.heldLabel)(state);
+        hudSlots.forEach((element, i) => {
+            const slot = state.slots[i];
+            const selected = i === state.selected;
+            if (selected)
+                element.setAttribute("aria-current", "true");
+            else
+                element.removeAttribute("aria-current");
+            element.querySelector(".item").textContent = slot ? (0, viewer_hud_js_1.itemLabel)(slot.item) : "";
+            element.querySelector(".count").textContent = slot && slot.count > 1 ? String(slot.count) : "";
+            element.setAttribute("aria-label", `Slot ${i + 1}: ${slot ? `${(0, viewer_hud_js_1.itemLabel)(slot.item)} ×${slot.count}` : "empty"}${selected ? ", selected" : ""}`);
+        });
+        const progress = state.mining ?? 0;
+        mining.hidden = progress <= 0;
+        miningBar.value = progress;
+        miningText.value = `${progress}%`;
+    },
+});
 const feed = new feed_js_1.ViewerFeed({
-    apply: batch => terrain.apply(batch),
-    reset: () => terrain.reset(),
+    apply(batch) {
+        try {
+            hud.apply(batch);
+        }
+        finally {
+            terrain.apply(batch);
+        }
+    },
+    reset() {
+        hud.reset();
+        terrain.reset();
+    },
     status(status) {
         feedStatus.value = labels[status];
         const attached = status !== "detached" && status !== "expired" && status !== "offline" && status !== "rejected";

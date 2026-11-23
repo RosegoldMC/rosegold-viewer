@@ -17,6 +17,7 @@ function requireModule(name) {
 const { decodeBatch, decodeLease, readBytes } = requireModule("./wire.js");
 const { ViewerFeed } = requireModule("./feed.js");
 const { ViewerTerrain } = requireModule("./viewer-terrain.js");
+const { ViewerHud, heldLabel, itemLabel } = requireModule("./viewer-hud.js");
 const encode = value => new TextEncoder().encode(JSON.stringify(value));
 const header = { epoch: 7, seq: 5, status: "ready", yaw: 0 };
 const origin = [0, 0, 0];
@@ -275,4 +276,81 @@ test("acknowledges applied batches, backs off on 429, then resyncs after an inva
   await until(() => statuses.at(-1) === "expired");
   await delay(70);
   assert.equal(sent.length, 7);
+});
+
+const hud = {
+  health: 18.5, food: 20, selected: 2, mining: 40,
+  slots: [null, { item: "stone", count: 64 }, { item: "diamond_pickaxe", count: 1 }, null, null, null, null, null, { item: "a".repeat(64), count: 999 }],
+};
+
+test("decodes a full HUD snapshot beside terrain and accepts boundaries", () => {
+  assert.deepEqual(decodeBatch(batchBytes({ ...header, hud })), { ...header, hud });
+  assert.equal(decodeBatch(batchBytes(header)).hud, undefined);
+  const edge = { health: 0, food: 0, selected: 8, mining: null, slots: Array(9).fill({ item: "a_0", count: 1 }) };
+  assert.deepEqual(decodeBatch(batchBytes({ ...header, hud: edge })).hud, edge);
+  for (const patch of [{ health: 2048, mining: 99 }, { health: 0.5, mining: 0 }]) {
+    assert.deepEqual(decodeBatch(batchBytes({ ...header, hud: { ...hud, ...patch } })).hud, { ...hud, ...patch });
+  }
+});
+
+test("rejects malformed HUD snapshots and HUDs on non-ready frames", () => {
+  const slot = { item: "stone", count: 1 };
+  const bad = [
+    null, [], "hud", { ...hud, health: -1 }, { ...hud, health: 2048.5 }, { ...hud, health: "20" }, { ...hud, health: null },
+    ...[-1, 21, 1.5, "5", null].map(food => ({ ...hud, food })),
+    ...[-1, 9, 0.5, "1", null].map(selected => ({ ...hud, selected })),
+    ...[-1, 100, 1.5, "5", undefined].map(mining => ({ ...hud, mining })),
+    { ...hud, slots: hud.slots.slice(1) }, { ...hud, slots: [...hud.slots, null] }, { ...hud, slots: null }, { ...hud, slots: {} },
+    ...[0, 1000, 1.5, "1", null].map(count => ({ ...hud, slots: [{ ...slot, count }, ...hud.slots.slice(1)] })),
+    ...["", "Stone", "minecraft:stone", "a-b", "é", "a".repeat(65), "stone\n", 1, null].map(item => ({ ...hud, slots: [{ ...slot, item }, ...hud.slots.slice(1)] })),
+  ];
+  for (const value of bad) assert.throws(() => decodeBatch(batchBytes({ ...header, hud: value })), /Invalid viewer reply/);
+  for (const status of ["waiting", "unsupported"]) {
+    assert.throws(() => decodeBatch(batchBytes({ ...header, status, hud })), /Invalid viewer reply/);
+  }
+});
+
+test("keeps the HUD across omitted frames and clears it on epoch, status, and reset", () => {
+  const shown = [];
+  const view = new ViewerHud({ show: value => shown.push(value) });
+  view.apply({ ...header });
+  assert.deepEqual(shown, [], "nothing to show before a snapshot");
+  view.apply({ ...header, hud });
+  view.apply({ ...header, seq: 6 });
+  assert.deepEqual(shown, [hud]);
+  const next = { ...hud, selected: 1, mining: null };
+  view.apply({ ...header, seq: 7, hud: next });
+  assert.deepEqual(shown, [hud, next]);
+  view.apply({ ...header, epoch: 8 });
+  assert.deepEqual(shown.at(-1), null);
+  view.apply({ ...header, epoch: 8, hud });
+  view.apply({ ...header, epoch: 8, status: "waiting" });
+  assert.equal(shown.at(-1), null);
+  view.apply({ ...header, epoch: 8, hud });
+  view.reset();
+  assert.equal(shown.at(-1), null);
+  const count = shown.length;
+  view.reset();
+  assert.equal(shown.length, count);
+});
+
+test("labels held items for humans", () => {
+  assert.equal(itemLabel("diamond_pickaxe"), "Diamond Pickaxe");
+  assert.equal(heldLabel(hud), "Diamond Pickaxe");
+  assert.equal(heldLabel({ ...hud, selected: 1 }), "Stone ×64");
+  assert.equal(heldLabel({ ...hud, selected: 0 }), "Empty hand");
+});
+
+test("detaching clears the HUD", async t => {
+  const shown = [];
+  const view = new ViewerHud({ show: value => shown.push(value) });
+  const { feed, sent } = probe(t, view);
+  feed.attach("12".repeat(32));
+  await until(() => sent.length === 1);
+  sent[0].resolve(Response.json({ lease: "abcd" }));
+  await until(() => sent.length === 2);
+  sent[1].resolve(new Response(batchBytes({ ...header, hud })));
+  await until(() => shown.length === 1);
+  feed.detach();
+  assert.equal(shown.at(-1), null);
 });

@@ -354,3 +354,22 @@ test("detaching clears the HUD", async t => {
   feed.detach();
   assert.equal(shown.at(-1), null);
 });
+
+test("decodes optional crack targets and rejects invalid ones", () => {
+  const target = { position: [-2147483648, 64, 2147483647], stage: 9 };
+  assert.deepEqual(decodeBatch(batchBytes({ ...header, hud: { ...hud, breaking: target } })).hud.breaking, target);
+  assert.equal(decodeBatch(batchBytes({ ...header, hud: { ...hud, breaking: null } })).hud.breaking, null);
+  assert.equal("breaking" in decodeBatch(batchBytes({ ...header, hud })).hud, false);
+  const bad = [
+    {}, [], "x", { position: [0, 0, 0] }, { stage: 0 }, { position: [0, 0, 0], stage: 10 }, { position: [0, 0, 0], stage: -1 },
+    { position: [0, 0, 0], stage: 1.5 }, { position: [0, 0, 0], stage: "1" }, { position: [0, 0], stage: 1 },
+    { position: [0, 0, 2147483648], stage: 1 }, { position: [0.5, 0, 0], stage: 1 }, { position: [0, "1", 0], stage: 1 },
+  ];
+  for (const breaking of bad) assert.throws(() => decodeBatch(batchBytes({ ...header, hud: { ...hud, breaking } })), /Invalid viewer reply/);
+  const shown = [];
+  const view = new ViewerHud({ show: value => shown.push(value) });
+  view.apply({ ...header, hud: { ...hud, breaking: target } });
+  view.apply({ ...header, seq: 6 });
+  assert.equal(shown.length, 1);
+  assert.deepEqual(shown[0].breaking, target);
+});

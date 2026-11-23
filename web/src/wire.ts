@@ -25,6 +25,7 @@ export interface Hud {
   selected: number;
   slots: (HudSlot | null)[];
   mining: number | null;
+  breaking?: { position: SectionPosition; stage: number } | null;
 }
 
 export type SectionUpdate = {
@@ -100,10 +101,10 @@ function integer(value: unknown, min: number, max: number): number {
 }
 
 function decodeHud(value: unknown): Hud {
-  const { health, food, selected, slots, mining } = object(value);
+  const { health, food, selected, slots, mining, breaking } = object(value);
   if (typeof health !== "number" || !Number.isFinite(health) || health < 0 || health > 2048) return invalid();
   if (!Array.isArray(slots) || slots.length !== 9) return invalid();
-  return {
+  const decoded: Hud = {
     health,
     food: integer(food, 0, 20),
     selected: integer(selected, 0, 8),
@@ -115,6 +116,15 @@ function decodeHud(value: unknown): Hud {
     }),
     mining: mining === null ? null : integer(mining, 0, 99),
   };
+  if (breaking !== undefined) {
+    if (breaking === null) {
+      decoded.breaking = null;
+    } else {
+      const target = object(breaking);
+      decoded.breaking = { position: position(target.position), stage: integer(target.stage, 0, 9) };
+    }
+  }
+  return decoded;
 }
 
 export function decodeLease(bytes: Uint8Array): string {

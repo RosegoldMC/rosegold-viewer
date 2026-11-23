@@ -1,0 +1,13 @@
+/.shards/
+/lib/
+/bin/
+/build/
+/tmp/
+/shard.lock
+/shard.override.yml
+/rosegold-viewer
+/.env
+/.env.*
+node_modules/
+*.dwarf
+.DS_Store

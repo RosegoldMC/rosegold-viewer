@@ -1,0 +1,8 @@
+name: rosegold-viewer
+version: 0.1.0
+crystal: '>= 1.19.1'
+
+dependencies:
+  rosegold:
+    github: RosegoldMC/rosegold.cr
+    commit: 88186494390ea54caa33f188c8fe2009c64743cc

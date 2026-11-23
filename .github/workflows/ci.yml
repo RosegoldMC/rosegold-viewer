@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  crystal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update
+      - uses: oprypin/install-crystal@v1
+        with:
+          crystal: 1.19.1
+      - run: shards install
+      - run: crystal tool format --check src spec examples
+      - run: crystal spec
+      - run: crystal build --no-codegen spec/fixtures/full_entrypoint.cr
+      - run: crystal build --no-codegen spec/fixtures/older_slim_entrypoint.cr
+      - run: |
+          for example in examples/*.cr; do
+            crystal build --no-codegen "$example"
+          done
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci
+      - run: npm run check:dist
+      - run: npm test

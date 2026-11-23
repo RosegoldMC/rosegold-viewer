@@ -1,0 +1,13 @@
+{
+  "name": "rosegold-viewer-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc && node scripts/build.mjs",
+    "check:dist": "tsc && node scripts/build.mjs --check",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3"
+  }
+}

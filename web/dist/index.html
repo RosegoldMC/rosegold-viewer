@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="same-origin">
+  <title>Rosegold Terrain Viewer</title>
+  <link rel="stylesheet" href="viewer.css">
+  <script defer src="viewer-bundle.js"></script>
+</head>
+<body>
+  <main>
+    <h1 class="sr-only">Rosegold Terrain Viewer</h1>
+    <button id="menu-toggle" type="button" aria-controls="connection" aria-expanded="false" hidden>Menu</button>
+    <div id="connection" class="connection" role="group" aria-label="Viewer connection">
+      <form method="post" action="/session" autocomplete="off" novalidate>
+        <label for="secret">Pairing secret</label>
+        <div class="controls">
+          <input id="secret" type="password" autocapitalize="off" autocomplete="off" spellcheck="false">
+          <button id="connect" type="submit" disabled>Pair</button>
+        </div>
+      </form>
+      <button id="disconnect" type="button" hidden>Detach</button>
+      <output id="feed-status" aria-live="polite">Disconnected</output>
+      <output id="texture-status" aria-live="polite" hidden></output>
+    </div>
+    <output id="renderer-status" role="alert" hidden></output>
+    <div class="viewport">
+      <canvas aria-label="Terrain from the bot's viewpoint"></canvas>
+      <div id="hud" aria-label="Player status" hidden>
+        <div id="mining" hidden>
+          <label for="mining-progress">Breaking</label>
+          <progress id="mining-progress" max="100" value="0"></progress>
+          <output for="mining-progress">0%</output>
+        </div>
+        <p id="ice-road" role="status" hidden>Ice road active</p>
+        <div id="hud-stats">
+          <div id="hearts" class="meter" aria-hidden="true"></div>
+          <div id="hunger" class="meter" aria-hidden="true"></div>
+          <p class="sr-only">Health <span id="hud-health">0</span>, food <span id="hud-food">0</span> of 20</p>
+        </div>
+        <p id="hud-held">Empty hand</p>
+        <ol id="hud-slots" aria-label="Hotbar">
+          <li><span class="key">1</span><canvas class="icon" width="16" height="16" aria-hidden="true" hidden></canvas><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">2</span><canvas class="icon" width="16" height="16" aria-hidden="true" hidden></canvas><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">3</span><canvas class="icon" width="16" height="16" aria-hidden="true" hidden></canvas><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">4</span><canvas class="icon" width="16" height="16" aria-hidden="true" hidden></canvas><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">5</span><canvas class="icon" width="16" height="16" aria-hidden="true" hidden></canvas><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">6</span><canvas class="icon" width="16" height="16" aria-hidden="true" hidden></canvas><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">7</span><canvas class="icon" width="16" height="16" aria-hidden="true" hidden></canvas><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">8</span><canvas class="icon" width="16" height="16" aria-hidden="true" hidden></canvas><span class="item"></span><span class="count"></span></li>
+          <li><span class="key">9</span><canvas class="icon" width="16" height="16" aria-hidden="true" hidden></canvas><span class="item"></span><span class="count"></span></li>
+        </ol>
+      </div>
+      <aside id="cue" role="status" aria-live="polite" aria-atomic="true" hidden>
+        <canvas class="icon" width="16" height="16" aria-hidden="true" hidden></canvas>
+        <div><strong id="cue-heading"></strong><span id="cue-text"></span></div>
+      </aside>
+      <div id="debug" aria-hidden="true" hidden>
+        <div id="debug-left" class="column"></div>
+        <div id="debug-right" class="column"></div>
+      </div>
+      <div id="touch" aria-label="Touch controls" hidden>
+        <div id="touch-stick" class="zone" data-touch="stick" aria-hidden="true"><span id="touch-thumb"></span></div>
+        <div id="touch-look" class="zone" data-touch="look" aria-hidden="true"></div>
+        <div id="touch-menu">
+          <button type="button" data-action="pause">Pause</button>
+          <button type="button" data-action="inventory">Inventory</button>
+          <button type="button" data-action="chat">Chat</button>
+          <button type="button" data-action="command" aria-label="Command">/</button>
+        </div>
+        <div id="touch-buttons">
+          <button type="button" data-touch="attack">Attack</button>
+          <button type="button" data-touch="use">Use</button>
+          <button type="button" data-touch="jump">Jump</button>
+          <button type="button" data-action="sprint" aria-pressed="false">Sprint</button>
+          <button type="button" data-action="sneak" aria-pressed="false">Sneak</button>
+        </div>
+      </div>
+      <section id="chat" aria-label="Chat" hidden>
+        <ol id="chat-log"></ol>
+        <form id="chat-form" autocomplete="off" hidden>
+          <input id="chat-input" type="text" maxlength="256" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Chat message" placeholder="Enter to send, / for a command, Esc to close">
+          <div id="chat-actions">
+            <button id="chat-send" type="submit">Send</button>
+            <button id="chat-close" type="button">Close chat</button>
+          </div>
+          <output id="chat-note" role="status" aria-live="polite"></output>
+        </form>
+      </section>
+      <p id="script-status" role="status" hidden></p>
+      <p id="control-notice" role="status" hidden></p>
+      <div id="control" hidden>
+        <button id="take-control" type="button" hidden>Intervene</button>
+        <p id="play-hint" hidden>Play is unavailable while a container is open, a click is unconfirmed, or the server is still settling a carried stack. Wait a moment or open the inventory.</p>
+        <button id="play-keyboard" type="button" hidden>Play without mouse capture</button>
+        <div id="pause-menu" hidden>
+          <h2>Paused</h2>
+          <button id="resume-play" type="button">Resume play</button>
+          <button id="open-inventory" type="button">Open inventory</button>
+          <button id="resume-script" type="button" hidden>Resume script</button>
+          <button id="restart-script" type="button" hidden>Restart script from top</button>
+          <div id="restart-confirm" role="alertdialog" aria-label="Confirm restart" hidden>
+            <p>Restart the script from the top? Its progress is discarded.</p>
+            <button id="restart-yes" type="button">Restart script</button>
+            <button id="restart-no" type="button">Cancel</button>
+          </div>
+          <button class="return-script" type="button">Return to script</button>
+        </div>
+        <div id="inventory-panel" hidden>
+          <p id="inventory-hint" hidden>This container has not finished loading, so clicks are off. Press E to close it, then open it again.</p>
+          <div id="touch-inventory" role="group" aria-label="Touch slot action">
+            <button type="button" data-op="pickup" aria-pressed="true">Pick up or place</button>
+            <button type="button" data-op="split" aria-pressed="false">Split half</button>
+            <button type="button" data-op="quick" aria-pressed="false">Quick move</button>
+            <button type="button" data-op="swap" aria-pressed="false">Swap with hotbar</button>
+            <label for="touch-hotbar">Hotbar slot
+              <select id="touch-hotbar"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option></select>
+            </label>
+          </div>
+          <button id="close-inventory" type="button">Close inventory</button>
+          <div id="inventory"></div>
+          <div id="carried" class="slot" hidden></div>
+          <button class="return-script" type="button">Return to script</button>
+        </div>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

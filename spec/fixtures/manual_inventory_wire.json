@@ -1,0 +1,25 @@
+{
+  "open": [1, 1, 2],
+  "click": [1, 2, 3, 1, 1, 36, 0, 1],
+  "close": [1, 3, 4, 1],
+  "pending": {
+    "grant": 1,
+    "ack": 1,
+    "mode": "inventory",
+    "canPlay": false,
+    "canReturn": false,
+    "canResume": false,
+    "canRestart": false,
+    "checkpoint": "none",
+    "marker": null,
+    "inventory": {
+      "menu": 1,
+      "revision": 1,
+      "layout": "player",
+      "slots": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, ["stone", 5], null, null, null, null, null, null, null, null, null],
+      "cursor": null,
+      "ready": true,
+      "pending": true
+    }
+  }
+}

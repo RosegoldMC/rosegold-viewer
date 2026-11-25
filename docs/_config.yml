@@ -1,6 +1,8 @@
 title: Rosegold Viewer
 description: Browser viewer and optional manual control for Rosegold bots.
+url: https://rosegoldmc.github.io
 baseurl: /rosegold-viewer
+social_image: /media/mobile-demo-poster.png
 navigation:
   - { label: Viewer docs, url: / }
   - { label: Get started, url: /getting-started.html }

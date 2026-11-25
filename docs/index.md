@@ -1,5 +1,6 @@
 ---
 title: Rosegold Viewer
+video: /media/mobile-demo.mp4
 ---
 
 # Rosegold Viewer
@@ -11,7 +12,7 @@ Start your [Rosegold bot](https://github.com/RosegoldMC/rosegold.cr) headless an
 The clip shows a script walking to a placement surface, placing a cyan wool block, and handing control to the operator and back. It was recorded on a local vanilla server, in a desktop browser emulating a phone. It does not show a physical device or any public or shared control.
 
 <figure>
-  <video controls playsinline preload="metadata" width="854" height="480" poster="media/mobile-demo-poster.png" aria-label="Handing control to the operator and back to the script, 12 seconds">
+  <video controls autoplay muted loop playsinline preload="metadata" width="854" height="480" poster="media/mobile-demo-poster.png" aria-label="Handing control to the operator and back to the script, 12 seconds">
     <source src="media/mobile-demo.mp4" type="video/mp4">
     <track kind="captions" src="media/mobile-demo.vtt" srclang="en" label="English" default>
   </video>

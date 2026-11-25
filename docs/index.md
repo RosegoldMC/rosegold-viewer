@@ -1,5 +1,6 @@
 ---
 title: Rosegold Viewer
+video: /media/mobile-demo.mp4
 ---
 
 # Rosegold Viewer

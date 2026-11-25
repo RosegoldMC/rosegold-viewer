@@ -32,10 +32,13 @@ module RosegoldViewer
     end
 
     private class Generation
-      getter secret : String = Random::Secure.hex(32)
+      getter secret : String
       getter stopped = Channel(Nil).new
       property pairing : Pairing?
       property lease : Lease?
+
+      def initialize(@secret)
+      end
     end
 
     @transport = LoopbackHost.new
@@ -45,9 +48,17 @@ module RosegoldViewer
 
     # *pack_directory* is a locally supplied, already-built texture pack (see `Pack`); without it the
     # viewer serves untextured placeholders. *https* is required to expose the viewer beyond loopback.
-    def initialize(@lease_timeout : Time::Span = 15.seconds, *, @https : HTTPS? = nil, pack_directory : String? = nil)
-      @pack = pack_directory.try { |directory| Pack.new(directory) }
+    def initialize(@lease_timeout : Time::Span = 15.seconds, *, @https : HTTPS? = nil, pack_directory : String? = nil,
+                   @port : Int32? = nil, @secret : String? = nil)
       raise ArgumentError.new("Lease timeout must be positive") unless @lease_timeout.positive?
+      if port = @port
+        raise ArgumentError.new("Port must be in 1..65535") unless (1..65535).includes?(port)
+        raise ArgumentError.new("Port cannot be set with HTTPS") if @https
+      end
+      if secret = @secret
+        raise ArgumentError.new("Pairing secret must be 64 lowercase hexadecimal characters") unless /\A[0-9a-f]{64}\z/.matches?(secret)
+      end
+      @pack = pack_directory.try { |directory| Pack.new(directory) }
     end
 
     def inspect(io : IO) : Nil
@@ -83,8 +94,8 @@ module RosegoldViewer
         stop
       end
 
-      @generation = generation = Generation.new
-      url = @transport.enable(@https) { |request| respond(generation, request) }
+      @generation = generation = Generation.new(@secret || Random::Secure.hex(32))
+      url = @transport.enable(@https, port: @port) { |request| respond(generation, request) }
       unless url
         stop
         return

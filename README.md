@@ -34,7 +34,7 @@ Add the shard to your bot's `shard.yml`:
 dependencies:
   rosegold-viewer:
     github: RosegoldMC/rosegold-viewer
-    version: ~> 0.1.0
+    version: ~> 0.2.0
 ```
 
 After `shards install`, require Rosegold first. If you already have a `bot`, call `viewer = RosegoldViewer.mount(bot, pack_directory: ENV["VIEWER_PACK"])` and then `viewer.enable` when you want to attach. For a reconnecting script, keep one host outside `Bot.run` and bind each new session to it: `pack_directory` points to the **prepared textures**, not a ZIP file.
@@ -60,6 +60,10 @@ end
 ```
 
 Open the URL and enter the separate secret. The host listens on loopback by default. The example skips the listener when stdout is redirected so the secret won't end up in a log. You can also call `viewer.enable` later in the script. A read-only browser can come and go without interrupting the bot.
+
+For a URL that stays the same across restarts, pass a fixed `port:` to `Host.new` or `RosegoldViewer.mount`. If the port is taken, `enable` returns `nil`. With HTTPS, leave `port:` unset and configure the port in the origin. Pass `secret:` with the same 64-character lowercase hex value each time to keep the pairing secret; store it somewhere private. Without these options, the host picks a new loopback port and secret each time it starts.
+
+Check **Remember me** when pairing to save the secret in this browser and pair automatically the next time you open the same URL. Detach and uncheck it to forget the secret. Opening or reloading a remembered tab takes over the viewer from any other tab and ends manual control there. Only use it on a browser you trust, and don't serve other local web apps on the viewer's port.
 
 ## Where the textures come from
 

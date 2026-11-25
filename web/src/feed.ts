@@ -7,6 +7,7 @@ interface FeedEvents {
   apply(batch: TerrainBatch): void;
   reset(): void;
   status(status: FeedStatus): void;
+  paired?(secret: string): void;
   outbound?(batchCursor: Cursor): Record<string, unknown> | null;
 }
 
@@ -174,6 +175,7 @@ export class ViewerFeed {
         if (this.auth !== auth) return;
         if (active.signal.aborted) throw new Error("Viewer request timed out");
         this.auth = { kind: "lease", token: lease };
+        this.events.paired?.(auth.token);
         this.events.status("loading");
       } else if (result.status === 204) {
         if (active.signal.aborted) throw new Error("Viewer request timed out");

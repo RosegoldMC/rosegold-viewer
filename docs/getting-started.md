@@ -15,7 +15,7 @@ In your bot's `shard.yml`:
 dependencies:
   rosegold-viewer:
     github: RosegoldMC/rosegold-viewer
-    version: ~> 0.1.0
+    version: ~> 0.2.0
 ```
 
 Then run `shards install`.

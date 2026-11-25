@@ -3311,6 +3311,7 @@ class ViewerFeed {
                 if (active.signal.aborted)
                     throw new Error("Viewer request timed out");
                 this.auth = { kind: "lease", token: lease };
+                this.events.paired?.(auth.token);
                 this.events.status("loading");
             }
             else if (result.status === 204) {
@@ -5247,9 +5248,11 @@ const touch_js_1 = require("./touch.js");
 const viewer_terrain_js_1 = require("./viewer-terrain.js");
 const entity_glue_js_1 = require("./entity-glue.js");
 const viewer_debug_js_1 = require("./viewer-debug.js");
+const pairing_js_1 = require("./pairing.js");
 const canvas = document.querySelector("canvas");
 const form = document.querySelector("form");
 const input = document.querySelector("#secret");
+const remember = document.querySelector("#remember");
 const connect = document.querySelector("#connect");
 const disconnect = document.querySelector("#disconnect");
 const panel = document.querySelector("#connection");
@@ -5591,7 +5594,12 @@ const feed = new feed_js_1.ViewerFeed({
         const outbound = control.outbound();
         return debug.requested() ? { ...outbound, d: 1 } : outbound;
     },
+    paired(secret) {
+        pairing.paired(secret);
+    },
     status(status) {
+        if (status === "rejected")
+            pairing.rejected();
         feedStatus.value = labels[status];
         const attached = status !== "detached" && status !== "expired" && status !== "offline" && status !== "rejected";
         form.hidden = attached;
@@ -5603,15 +5611,8 @@ const feed = new feed_js_1.ViewerFeed({
         debug.setStatus(status);
     },
 });
-form.addEventListener("submit", event => {
-    event.preventDefault();
-    const secret = input.value.trim();
-    input.value = "";
-    if (!/^[0-9a-f]{64}$/i.test(secret)) {
-        feedStatus.value = "Enter the 64-character hexadecimal pairing secret.";
-        return;
-    }
-    feed.attach(secret.toLowerCase());
+const pairing = (0, pairing_js_1.bindPairingForm)(form, input, remember, secret => feed.attach(secret), () => {
+    feedStatus.value = "Enter the 64-character hexadecimal pairing secret.";
 });
 menuToggle.addEventListener("click", toggleMenu);
 disconnect.addEventListener("click", () => {
@@ -5867,6 +5868,7 @@ window.addEventListener("pagehide", () => {
 });
 updateVisibility();
 connect.disabled = false;
+pairing.restore();
   },
 };
 const loaded = new Map();

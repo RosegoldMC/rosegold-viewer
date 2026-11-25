@@ -19,8 +19,10 @@ p { color: var(--muted); font-size: 0.875rem; margin: 0.25rem 0 0; }
 label, output { display: block; font-size: 0.875rem; }
 [hidden], .connection[hidden] { display: none; }
 .controls { display: flex; gap: 0.5rem; margin: 0.25rem 0 0; }
-input, button { font: inherit; border-radius: 0.375rem; padding: 0.375rem 0.625rem; }
-input { width: min(15rem, 50vw); min-width: 0; border: 1px solid var(--border); background: var(--sky); color: var(--text); }
+input:not([type="checkbox"]), button { font: inherit; border-radius: 0.375rem; padding: 0.375rem 0.625rem; }
+input:not([type="checkbox"]) { width: min(15rem, 50vw); min-width: 0; border: 1px solid var(--border); background: var(--sky); color: var(--text); }
+.remember { display: flex; align-items: center; gap: 0.375rem; margin-top: 0.375rem; }
+#remember { margin: 0; }
 button { border: 1px solid var(--accent); background: var(--accent); color: var(--page); cursor: pointer; }
 button:disabled { opacity: 0.5; cursor: default; }
 #feed-status { color: var(--muted); }

@@ -46,14 +46,14 @@ module RosegoldViewer
 
     # If already enabled, returns the current URL and keeps its original handler.
     # The handler must finish promptly. Disable closes socket I/O but cannot interrupt application code.
-    def enable(https : HTTPS? = nil, &handler : Request -> Reply) : String?
+    def enable(https : HTTPS? = nil, *, port : Int32? = nil, &handler : Request -> Reply) : String?
       if current = @generation
         return current.url if current.active?
       end
 
       secure = {https, https.context} if https
-      listener = TCPServer.new(https.try(&.bind_address) || ADDRESS, https.try(&.port) || 0, backlog: MAX_CONNECTIONS)
-      if !https && listener.local_address.port == @previous_port
+      listener = TCPServer.new(https.try(&.bind_address) || ADDRESS, https.try(&.port) || port || 0, backlog: MAX_CONNECTIONS)
+      if !https && !port && listener.local_address.port == @previous_port
         previous = listener
         begin
           listener = TCPServer.new(ADDRESS, 0, backlog: MAX_CONNECTIONS)
@@ -63,7 +63,7 @@ module RosegoldViewer
       end
       generation = Generation.new(listener, handler, @idle_timeout, @phase_timeout, secure)
       @generation = generation
-      @previous_port = listener.local_address.port unless https
+      @previous_port = listener.local_address.port unless https || port
       generation.start
       generation.url
     rescue ex : IO::Error | OpenSSL::Error

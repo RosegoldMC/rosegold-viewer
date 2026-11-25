@@ -203,6 +203,49 @@ rescue IO::Error
 end
 
 describe RosegoldViewer::Host do
+  it "validates loopback port options" do
+    [-1, 0, 65536].each do |port|
+      expect_raises(ArgumentError) { RosegoldViewer::Host.new(port: port) }
+    end
+    https = RosegoldViewer::HTTPS.new(bind_address: "127.0.0.1", origin: "https://viewer.test:8443", certificate_chain: "unused", private_key: "unused")
+    expect_raises(ArgumentError) { RosegoldViewer::Host.new(https: https, port: 8443) }
+  end
+
+  it "validates the configured secret without exposing it" do
+    ["", "a" * 63, "a" * 65, "A" * 64, "g" * 64, "#{"a" * 64}\n"].each do |secret|
+      error = expect_raises(ArgumentError) { RosegoldViewer::Host.new(secret: secret) }
+      error.message.should eq("Pairing secret must be 64 lowercase hexadecimal characters")
+    end
+  end
+
+  it "reuses the configured port and secret without reusing a lease" do
+    port = TCPServer.open("127.0.0.1", 0) { |probe| probe.local_address.port }
+    secret = "ab01" * 16
+    host = RosegoldViewer::Host.new(port: port, secret: secret)
+    pairing = host.enable.not_nil!
+    pairing.url.should eq("http://127.0.0.1:#{port}")
+    pairing.secret.should eq(secret)
+    viewer_post(pairing, "/session", "cd23" * 16).status.should eq(HTTP::Status::UNAUTHORIZED)
+    lease = viewer_pair(pairing)
+
+    host.disable
+    restarted = host.enable.not_nil!
+    restarted.should eq(pairing)
+    viewer_post(restarted, "/next", lease, %({"epoch":0,"seq":0})).status.should eq(HTTP::Status::UNAUTHORIZED)
+    viewer_pair(restarted).should_not eq(lease)
+  ensure
+    host.try &.disable
+  end
+
+  it "does not fall back to a different port when the configured port is busy" do
+    TCPServer.open("127.0.0.1", 0) do |listener|
+      host = RosegoldViewer::Host.new(port: listener.local_address.port)
+      host.enable.should be_nil
+    ensure
+      host.try &.disable
+    end
+  end
+
   it "embeds only the fixed asset routes and sends restrictive headers" do
     host = RosegoldViewer::Host.new
     pairing = host.enable.not_nil!

@@ -12,10 +12,12 @@ import { TouchSurface, type Hold } from "./touch.js";
 import { ViewerTerrain } from "./viewer-terrain.js";
 import { createEntityPackLoader, createEntitySink } from "./entity-glue.js";
 import { ViewerDebug } from "./viewer-debug.js";
+import { bindPairingForm } from "./pairing.js";
 
 const canvas = document.querySelector("canvas")!;
 const form = document.querySelector("form")!;
 const input = document.querySelector<HTMLInputElement>("#secret")!;
+const remember = document.querySelector<HTMLInputElement>("#remember")!;
 const connect = document.querySelector<HTMLButtonElement>("#connect")!;
 const disconnect = document.querySelector<HTMLButtonElement>("#disconnect")!;
 const panel = document.querySelector<HTMLElement>("#connection")!;
@@ -349,7 +351,11 @@ const feed = new ViewerFeed({
     const outbound = control.outbound();
     return debug.requested() ? { ...outbound, d: 1 } : outbound;
   },
+  paired(secret) {
+    pairing.paired(secret);
+  },
   status(status) {
+    if (status === "rejected") pairing.rejected();
     feedStatus.value = labels[status];
     const attached = status !== "detached" && status !== "expired" && status !== "offline" && status !== "rejected";
     form.hidden = attached;
@@ -361,15 +367,8 @@ const feed = new ViewerFeed({
   },
 });
 
-form.addEventListener("submit", event => {
-  event.preventDefault();
-  const secret = input.value.trim();
-  input.value = "";
-  if (!/^[0-9a-f]{64}$/i.test(secret)) {
-    feedStatus.value = "Enter the 64-character hexadecimal pairing secret.";
-    return;
-  }
-  feed.attach(secret.toLowerCase());
+const pairing = bindPairingForm(form, input, remember, secret => feed.attach(secret), () => {
+  feedStatus.value = "Enter the 64-character hexadecimal pairing secret.";
 });
 menuToggle.addEventListener("click", toggleMenu);
 disconnect.addEventListener("click", () => {
@@ -590,3 +589,4 @@ window.addEventListener("pagehide", () => {
 });
 updateVisibility();
 connect.disabled = false;
+pairing.restore();

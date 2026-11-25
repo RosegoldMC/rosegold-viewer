@@ -1,0 +1,12 @@
+/lib/
+/bin/
+/shard.override.yml
+/web/node_modules/
+/local-pack/
+/viewer-pack/
+/.venv/
+__pycache__/
+/.jekyll-cache/
+/docs/.jekyll-cache/
+/_site/
+.DS_Store

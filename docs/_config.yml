@@ -1,0 +1,15 @@
+title: Rosegold Viewer
+description: Browser viewer and optional manual control for Rosegold bots.
+baseurl: /rosegold-viewer
+navigation:
+  - { label: Viewer docs, url: / }
+  - { label: Get started, url: /getting-started.html }
+  - { label: Phone access, url: /private-access.html }
+  - { label: Controls, url: /controls.html }
+  - { label: Architecture, url: /architecture.html }
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default

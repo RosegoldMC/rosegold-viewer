@@ -1,0 +1,11 @@
+name: rosegold-viewer
+version: 0.1.0
+
+crystal: ">= 1.17.0"
+
+license: MIT
+
+dependencies:
+  rosegold:
+    github: RosegoldMC/rosegold.cr
+    commit: 225f3ddee082412afa9f063d1bd8e22998294367

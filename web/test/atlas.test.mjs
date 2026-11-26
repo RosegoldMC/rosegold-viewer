@@ -2,12 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { load } from "../scripts/load-for-test.mjs";
 
-const { loadAtlas, lookupInvisible, lookupModels, lookupNames, lookupTiles, lookupVariants, parseManifest } = load("atlas");
+const { ProtocolAtlas, loadAtlas, lookupInvisible, lookupModels, lookupNames, lookupTiles, lookupVariants, parseManifest } = load("atlas");
 
 const manifest = { protocol: 777, tileSize: 16, columns: 2, rows: 1, blocks: [{ min: 5, max: 6, faces: [0, 1, -1, -1, 0, 1] }] };
 
 test("parses and looks up state ranges, rejecting malformed manifests", () => {
   const tiles = lookupTiles(parseManifest(manifest));
+  const { protocol: older, ...olderRest } = parseManifest({ ...manifest, protocol: 775 });
+  const { protocol: current, ...currentRest } = parseManifest(manifest);
+  assert.deepEqual([older, current], [775, 777]);
+  assert.deepEqual(olderRest, currentRest);
   assert.deepEqual(tiles(6), [0, 1, -1, -1, 0, 1]);
   assert.equal(tiles(7), undefined);
   const wide = parseManifest({ ...manifest, columns: 38, rows: 32,
@@ -41,6 +45,8 @@ function deps({ json = manifest, png = pngHeader(32, 16), size = [32, 16], statu
 test("loads atlas and rejects mismatched, oversized, or missing assets", async () => {
   const atlas = await loadAtlas(deps());
   assert.equal(atlas.columns, 2);
+  assert.equal(atlas.protocol, 777);
+  assert.equal((await loadAtlas(deps({ json: { ...manifest, protocol: 775 } }))).protocol, 775);
   await assert.rejects(loadAtlas(deps({ size: [16, 16] })));
   await assert.rejects(loadAtlas(deps({ png: new Uint8Array(1024 * 1024 + 1) })));
   await assert.rejects(loadAtlas(deps({ status: 404 })));
@@ -202,4 +208,47 @@ test("rejects oversized or malformed local meshes and broken face bindings", () 
     ].map(bad => ({ ...meshPack, models: { ...meshPack.models, ...bad } })),
   ];
   for (const input of invalid) assert.throws(() => parseManifest(input), /atlas (mesh|quad)/);
+});
+
+test("re-pairing to another protocol in the same page refetches the atlas or falls back to untextured", async () => {
+  const settle = () => new Promise(resolve => setTimeout(resolve, 5));
+  let served = 777;
+  const fetched = [];
+  const shown = [];
+  const atlas = new ProtocolAtlas(() => {
+    fetched.push(served);
+    return loadAtlas(served === null ? deps({ status: 404 }) : deps({ json: { ...manifest, protocol: served } }));
+  }, loaded => shown.push(loaded?.protocol ?? null));
+  await settle();
+  assert.deepEqual(fetched, [777]);
+  assert.deepEqual(shown, []);
+
+  atlas.select(777);
+  await settle();
+  atlas.select(777);
+  await settle();
+  assert.deepEqual(fetched, [777]);
+  assert.deepEqual(shown, [null, 777]);
+
+  served = 775;
+  atlas.select(775);
+  await settle();
+  assert.deepEqual(fetched, [777, 775]);
+  assert.deepEqual(shown, [null, 777, null, 775]);
+
+  served = null;
+  atlas.select(777);
+  await settle();
+  assert.deepEqual(shown.slice(4), [null, null]);
+
+  served = 777;
+  atlas.select(775);
+  await settle();
+  assert.deepEqual(shown.slice(6), [null, null]);
+
+  served = 775;
+  atlas.select(777);
+  atlas.select(775);
+  await settle();
+  assert.deepEqual(shown.slice(8), [null, null, 775]);
 });

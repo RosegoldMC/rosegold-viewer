@@ -4,7 +4,7 @@
 
 Mount a textured web viewer on a running [Rosegold](https://github.com/RosegoldMC/rosegold.cr) bot. The bot can start headless. Open a browser later to see the terrain it loaded, its hotbar, and nearby entities. If the script permits it, take control from a keyboard or touchscreen and hand the same connection back to the script.
 
-This is very early. The viewer grew out of a playable Minecraft Java 26.3 demo, and the rendering and control APIs will keep taking shape over the coming months.
+The viewer supports Minecraft Java 26.1 (protocol 775) and 26.3 (protocol 777).
 
 ## See it run
 
@@ -34,10 +34,10 @@ Add the shard to your bot's `shard.yml`:
 dependencies:
   rosegold-viewer:
     github: RosegoldMC/rosegold-viewer
-    version: ~> 0.2.0
+    version: ~> 0.3.0
 ```
 
-After `shards install`, require Rosegold first. If you already have a `bot`, call `viewer = RosegoldViewer.mount(bot, pack_directory: ENV["VIEWER_PACK"])` and then `viewer.enable` when you want to attach. For a reconnecting script, keep one host outside `Bot.run` and bind each new session to it: `pack_directory` points to the **prepared textures**, not a ZIP file.
+After `shards install`, require Rosegold first (`rosegold/26.1`, `rosegold/26.3`, or `rosegold`). If you already have a `bot`, call `viewer = RosegoldViewer.mount(bot, pack_directory: ENV["VIEWER_PACK"])` and then `viewer.enable` when you want to attach. For a reconnecting script, keep one host outside `Bot.run` and bind each new session to it: `pack_directory` points to the **prepared textures**, not a ZIP file.
 
 ```crystal
 require "rosegold/26.3"
@@ -67,7 +67,7 @@ Check **Remember me** when pairing to save the secret in this browser and pair a
 
 ## Where the textures come from
 
-Prepare a local pack from your own Minecraft Java 26.3 client JAR. You can supply a resource-pack ZIP to override the client textures. The shard does not redistribute either input. After `shards install` and [installing the pack builder prerequisites](tools/README.md#build-a-local-viewer-pack), run this from your bot project:
+Prepare a local pack from your own Minecraft Java client JAR for the version your bot uses. You can supply a resource-pack ZIP to override the client textures. The shard does not redistribute either input. After `shards install` and [installing the pack builder prerequisites](tools/README.md#build-a-local-viewer-pack), run this from your bot project:
 
 ```sh
 crystal run lib/rosegold-viewer/tools/build-pack.cr -- /path/to/26.3.jar ./viewer-pack \

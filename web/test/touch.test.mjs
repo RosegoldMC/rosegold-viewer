@@ -116,7 +116,7 @@ test("input state ignores touch outside play and a ui change clears held touch k
 function viewerControl() {
   let time = 0;
   const vc = new ViewerControl({ state() {}, lock() { throw new Error("touch must not lock"); }, unlock() {}, inventory() {}, marker() {} }, () => time);
-  const feed = control => vc.apply({ epoch: 1, seq: 1, status: "ready", yaw: 0, control });
+  const feed = control => vc.apply({ epoch: 1, seq: 1, status: "ready", protocol: 777, yaw: 0, control });
   return { vc, feed };
 }
 

@@ -20,8 +20,6 @@ module RosegoldViewer
     end
     private record Visible, entity : Rosegold::Entity, id : UInt64
 
-    getter skins = PlayerSkins.new
-
     @world : Rosegold::Dimension?
     @scan : Iterator(UInt64)?
     @known = {} of UInt64 => Nil
@@ -30,7 +28,7 @@ module RosegoldViewer
     @species : Hash(UInt32, String)?
     @items : Hash(UInt32, String)?
 
-    def initialize(@protocol : UInt32)
+    def initialize(@protocol : UInt32, @skins : PlayerSkins)
     end
 
     def reset : Nil
@@ -40,10 +38,14 @@ module RosegoldViewer
       @visible.clear
     end
 
+    def name_for(entity_type : UInt32) : String?
+      species_names[entity_type]?
+    end
+
     def observe(world : Rosegold::Dimension, id : UInt64) : Nil
       synchronize(world)
       return if @known.has_key?(id)
-      return unless (entity = world.entities[id]?) && species_names.has_key?(entity.entity_type)
+      return unless (entity = world.entities[id]?) && DRAWABLE_SPECIES.includes?(name_for(entity.entity_type))
       @known.shift if @known.size == MAX_RECENT
       @known[id] = nil
     end
@@ -108,7 +110,7 @@ module RosegoldViewer
       return unless valid_axis?(pos.x) && valid_axis?(pos.y) && valid_axis?(pos.z)
       distance = (pos.x - eye[0]) ** 2 + (pos.y - eye[1]) ** 2 + (pos.z - eye[2]) ** 2
       return unless distance <= RANGE_SQUARED
-      return unless species = species_names[entity.entity_type]?
+      return unless (species = name_for(entity.entity_type)) && DRAWABLE_SPECIES.includes?(species)
       item = item_stack(entity) if species == "item"
       return if species == "item" && item.nil?
       candidates << {distance, id, entity, species, item}
@@ -125,14 +127,24 @@ module RosegoldViewer
 
     private def species_names : Hash(UInt32, String)
       @species ||= begin
-        {% if version = Rosegold::ENABLED_PROTOCOLS[777] %}
-          Array(Rosegold::Entity::Metadata).from_json(Minecraft::Data.read_asset({{version + "/entities.json"}}))
-            .select { |entry| DRAWABLE_SPECIES.includes?(entry.name) }
-            .to_h { |entry| {entry.id.to_u32, entry.name} }
-        {% else %}
-          {} of UInt32 => String
-        {% end %}
+        Array(Rosegold::Entity::Metadata).from_json(species_json)
+          .to_h { |entry| {entry.id.to_u32, entry.name} }
       end
+    end
+
+    private def species_json : String
+      {% begin %}
+      case @protocol
+      {% for protocol in [775, 777] %}
+        {% if version = Rosegold::ENABLED_PROTOCOLS[protocol] %}
+          when {{protocol}}_u32
+            Minecraft::Data.read_asset({{version + "/entities.json"}})
+        {% end %}
+      {% end %}
+      else
+        raise "Unsupported viewer protocol: #{@protocol}"
+      end
+      {% end %}
     end
 
     private def item_stack(entity : Rosegold::Entity) : Item?

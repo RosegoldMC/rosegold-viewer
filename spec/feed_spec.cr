@@ -1,5 +1,5 @@
 require "spec"
-require "rosegold/26.3"
+require "rosegold"
 require "../src/rosegold_viewer/feed"
 
 private class FeedSpecClient < Rosegold::Client
@@ -22,10 +22,16 @@ private class FeedSpecClient < Rosegold::Client
   end
 
   def receive_block(location : Rosegold::Vec3i, state : UInt16) : Nil
+    receive_wire(Rosegold::Clientbound::BlockChange) do |data|
+      data.write(location)
+      data.write(state.to_u32)
+    end
+  end
+
+  def receive_wire(packet_type : T.class, &) : Nil forall T
     data = Minecraft::IO::Memory.new
-    data.write(Rosegold::Clientbound::BlockChange.packet_id_for_protocol(protocol_version))
-    data.write(location)
-    data.write(state.to_u32)
+    data.write(packet_type.packet_id_for_protocol(connection.protocol_version))
+    yield data
     io = Minecraft::IO::Memory.new
     io.write(data.size.to_u32)
     io.write(data.to_slice)
@@ -153,8 +159,8 @@ private def viewer_frame(feed : RosegoldViewer::Feed, previous : ViewerFrame) : 
   viewer_frame(feed, previous.epoch, previous.seq)
 end
 
-private def viewer_state(name : String) : UInt16
-  Rosegold::MCData.for(777_u32).blocks.find! { |block| block.id_str == name }.min_state_id
+private def viewer_state(name : String, protocol = 777_u32) : UInt16
+  Rosegold::MCData.for(protocol).blocks.find! { |block| block.id_str == name }.min_state_id
 end
 
 private def viewer_chunk(world : Rosegold::Dimension, x : Int32, z : Int32, fluid_only : UInt16? = nil) : Rosegold::Chunk
@@ -419,47 +425,50 @@ describe RosegoldViewer::Feed do
     feed.failure.should be_nil
   end
 
-  it "attaches late and copies authoritative x-fastest states at signed section positions" do
-    client = FeedSpecClient.new
-    bot = Rosegold::Bot.new(client)
-    world = bot.world
-    stone = viewer_state("stone")
-    data = Rosegold::MCData.for(777_u32)
-    water = viewer_state("water")
-    client.player.feet = Rosegold::Vec3d.new(-0.25, -1.0, -0.25)
-    client.player.look = Rosegold::Look::WEST.up(30)
-    world.load_chunk(viewer_chunk(world, -1, -1))
-    target = Rosegold::Vec3i.new(-15, -14, -13)
-    world.set_block_state(target, stone)
-    world.predict_interaction_block_state(target, water, 1).should be_true
-    feed = SpecFeed.new
-    feed.bind(bot)
-    feed.pull(0_u32, 0_u32).should be_nil
+  {775_u32, 777_u32}.each do |protocol|
+    it "attaches late and copies authoritative x-fastest states at signed section positions on #{protocol}" do
+      client = FeedSpecClient.new(protocol)
+      bot = Rosegold::Bot.new(client)
+      world = bot.world
+      stone = viewer_state("stone", protocol)
+      data = Rosegold::MCData.for(protocol)
+      water = viewer_state("water", protocol)
+      client.player.feet = Rosegold::Vec3d.new(-0.25, -1.0, -0.25)
+      client.player.look = Rosegold::Look::WEST.up(30)
+      world.load_chunk(viewer_chunk(world, -1, -1))
+      target = Rosegold::Vec3i.new(-15, -14, -13)
+      world.set_block_state(target, stone)
+      world.predict_interaction_block_state(target, water, 1).should be_true
+      feed = SpecFeed.new
+      feed.bind(bot)
+      feed.pull(0_u32, 0_u32).should be_nil
 
-    feed.attach
-    frame = viewer_frame(feed)
-    frame.status.should eq("ready")
-    frame.header["center"].as_a.map(&.as_i).should eq([-1, -1, -1])
-    frame.header["eye"].as_a.map(&.as_f).should eq([bot.eyes.x, bot.eyes.y, bot.eyes.z])
-    frame.header["yaw"].as_f.should eq(90.0)
-    look = frame.header["look"].as_a.map(&.as_f)
-    look[0].should be_close(-Math.sqrt(3) / 2, 0.00001)
-    look[1].should be_close(0.5, 0.00001)
-    look[2].should be_close(0, 0.00001)
-    frame.header["air"].as_a.map(&.as_i).should eq(data.air_states.to_a.sort!)
-    frame.position.should eq([-1, -1, -1])
-    frame.kind.should eq("states")
-    frame.data.size.should eq(8192)
-    index = (2 * 16 + 3) * 16 + 1
-    frame.state(index).should eq(stone)
-    frame.state(index + 1).should eq(viewer_state("air"))
-    world.set_block_state(target, water)
-    frame.state(index).should eq(stone)
-    feed.pull(frame.epoch, frame.seq).should be_nil
-    feed.advance(49.milliseconds)
-    feed.pull(frame.epoch, frame.seq).should be_nil
-    feed.advance(1.millisecond)
-    viewer_frame(feed, frame).seq.should eq(frame.seq + 1)
+      feed.attach
+      frame = viewer_frame(feed)
+      frame.status.should eq("ready")
+      frame.header["center"].as_a.map(&.as_i).should eq([-1, -1, -1])
+      frame.header["eye"].as_a.map(&.as_f).should eq([bot.eyes.x, bot.eyes.y, bot.eyes.z])
+      frame.header["yaw"].as_f.should eq(90.0)
+      look = frame.header["look"].as_a.map(&.as_f)
+      look[0].should be_close(-Math.sqrt(3) / 2, 0.00001)
+      look[1].should be_close(0.5, 0.00001)
+      look[2].should be_close(0, 0.00001)
+      frame.header["air"].as_a.map(&.as_i).should eq(data.air_states.to_a.sort!)
+      frame.position.should eq([-1, -1, -1])
+      frame.kind.should eq("states")
+      frame.data.size.should eq(8192)
+      index = (2 * 16 + 3) * 16 + 1
+      frame.state(index).should eq(stone)
+      frame.state(index + 1).should eq(viewer_state("air", protocol))
+      client.receive_block(target, water)
+      world.block_state(target).should eq(water)
+      frame.state(index).should eq(stone)
+      feed.pull(frame.epoch, frame.seq).should be_nil
+      feed.advance(49.milliseconds)
+      feed.pull(frame.epoch, frame.seq).should be_nil
+      feed.advance(1.millisecond)
+      viewer_frame(feed, frame).seq.should eq(frame.seq + 1)
+    end
   end
 
   it "updates rotation, eye position, and the section window without a bot tick" do
@@ -760,6 +769,69 @@ describe RosegoldViewer::Feed do
     client.resume_physics
     feed.attach
     viewer_frame(feed).header["paths"].as_a.should be_empty
+  end
+
+  it "uses the new connection protocol for air states, item names, and dropped items" do
+    client = FeedSpecClient.new
+    feed = SpecFeed.new
+    bot = Rosegold::Bot.new(client)
+    feed.bind(bot)
+    feed.attach
+    previous = nil.as(ViewerFrame?)
+
+    {777_u32, 775_u32}.each do |protocol|
+      if previous
+        client.replace_connection(protocol)
+        client.resume_physics
+        feed.advance
+      end
+      data = Rosegold::MCData.for(protocol)
+      item = data.items.find! { |entry| entry.name == "diamond_pickaxe" }
+      item_id = protocol == 775 ? 71_u32 : 72_u32
+      slot = Rosegold::Slot.new(1_u32, item.id)
+      selected = protocol == 775 ? 2_u32 : 3_u32
+      client.player_inventory[selected.to_i] = slot
+      Rosegold::Client.protocol_version = protocol
+      begin
+        client.receive_wire(Rosegold::Clientbound::HeldItemChange) { |packet| packet.write(selected) }
+      ensure
+        Rosegold::Client.reset_protocol_version!
+      end
+      entity = Rosegold::Entity.new(9_u32, UUID.random, item_id, Rosegold::Vec3d::ORIGIN, 0_f32, 0_f32, 0_f32, Rosegold::Vec3d::ORIGIN)
+      entity.tracked_data[8_u8] = slot
+      bot.world.entities[9_u64] = entity
+
+      frame = previous ? viewer_frame(feed, previous) : viewer_frame(feed)
+      frame.status.should eq("ready")
+      frame.header["protocol"].as_i.should eq(protocol)
+      frame.header["air"].as_a.map(&.as_i).should eq(data.air_states.to_a.sort!)
+      frame.header["hud"]["selected"].as_i.should eq(selected)
+      frame.header["hud"]["slots"][selected.to_i]["item"].as_s.should eq(item.name)
+      frame.header["entities"][0]["item"]["name"].as_s.should eq(item.name)
+      frame.epoch.should_not eq(previous.epoch) if previous
+      previous = frame
+    end
+  end
+
+  {775_u32, 777_u32}.each do |protocol|
+    it "reports a pack mismatch for #{protocol} without touching pose or terrain" do
+      client = FeedSpecClient.new(protocol)
+      bot = FeedSpecBot.new(client)
+      bot.fail_pose = true
+      pack_protocol = protocol == 775 ? 777.0 : 775.0
+      feed = SpecFeed.new(pack_protocol)
+      feed.bind(bot)
+      feed.attach
+      frame = viewer_frame(feed)
+      frame.status.should eq("pack_mismatch")
+      frame.header["protocol"].as_i.should eq(protocol)
+      frame.header["packProtocol"].as_f.should eq(pack_protocol)
+      frame.header["control"]?.should be_nil
+      frame.header["eye"]?.should be_nil
+      frame.header["section"]?.should be_nil
+      frame.data.should be_empty
+      feed.failure.should be_nil
+    end
   end
 
   it "reports unsupported without touching pose or terrain" do

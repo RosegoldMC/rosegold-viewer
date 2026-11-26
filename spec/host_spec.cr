@@ -1,7 +1,7 @@
 require "spec"
 require "http/client"
 require "pretty_print"
-require "rosegold/26.3"
+require "rosegold"
 require "../src/rosegold-viewer"
 
 # Container clicks and closes need the core's guarded inventory writes; older pins must fail closed instead.

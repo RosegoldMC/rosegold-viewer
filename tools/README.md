@@ -1,6 +1,6 @@
 # Build a local viewer pack
 
-You'll need Crystal, libpng development files, and the Minecraft Java 26.3 client JAR (protocol 777). Look for `versions/26.3/26.3.jar` in your launcher's game folder. The server JAR doesn't have the textures. The builder reads the JAR as a ZIP and doesn't run Java or contact any servers.
+You'll need Crystal, libpng development files, and a Minecraft Java 26.1, 26.1.1 or 26.1.2 (protocol 775) or 26.3 (protocol 777) client JAR. Use the version your bot connects with. Look for `versions/26.1.2/26.1.2.jar` (or the 26.1 or 26.1.1 equivalent) or `versions/26.3/26.3.jar` in your launcher's game folder. The server JAR doesn't have the textures. The builder reads the JAR as a ZIP and doesn't run Java or contact any servers.
 
 Install `pkg-config` and `libpng-dev` on Debian or Ubuntu, or `pkg-config` and `libpng` with Homebrew on macOS. These are for the pack builder, not the viewer host. From a bot project that has this shard installed, run:
 
@@ -31,4 +31,4 @@ crystal spec tools/spec
 
 The tests generate their own images and ZIPs. They don't need a Minecraft installation or a resource pack.
 
-`states-26.3.json` records protocol state IDs, property order, and opaque/invisible flags from the 26.3 client registry. It has no model selections or texture bindings. The builder writes those to your local `atlas.json` with the geometry it reads from your JAR and optional ZIP. The shard does not distribute that model data or artwork. Only serve a generated pack where you have permission to share its contents.
+`states-26.1.json` and `states-26.3.json` record protocol state IDs, property order, and opaque/invisible flags. They contain no model selections or texture bindings. The builder writes those to your local `atlas.json` with the geometry it reads from your JAR and optional ZIP. The shard does not distribute that model data or artwork. Only serve a generated pack where you have permission to share its contents.

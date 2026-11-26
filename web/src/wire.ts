@@ -1,3 +1,4 @@
+import { isProtocol, type Protocol } from "./protocol.js";
 import type { PathOverlay, SectionPosition, Vec3 } from "./renderer.js";
 import { SECTION_VOLUME } from "./terrain.js";
 
@@ -99,7 +100,8 @@ export type SectionUpdate = {
 
 export type TerrainBatch = Cursor & (
   { status: "waiting" | "unsupported"; paths?: never; entities?: never } |
-  { status: "ready"; yaw: number; paths?: PathOverlay[]; entities?: EntitySnapshot[] }
+  { status: "pack_mismatch"; protocol: Protocol; packProtocol: number; paths?: never; entities?: never } |
+  { status: "ready"; protocol: Protocol; yaw: number; paths?: PathOverlay[]; entities?: EntitySnapshot[] }
 ) & {
   center?: SectionPosition;
   eye?: Vec3;
@@ -344,15 +346,20 @@ export function decodeBatch(bytes: Uint8Array): TerrainBatch {
 
   const header = json(bytes.subarray(2, headerEnd));
   const status = header.status;
-  if (status !== "waiting" && status !== "unsupported" && status !== "ready") return invalid();
+  if (status !== "waiting" && status !== "unsupported" && status !== "pack_mismatch" && status !== "ready") return invalid();
   const cursor = { epoch: unsigned(header.epoch), seq: unsigned(header.seq) };
   let batch: TerrainBatch;
   if (status === "ready") {
-    const yaw = header.yaw;
-    if (typeof yaw !== "number" || !Number.isFinite(yaw)) return invalid();
-    batch = { ...cursor, status, yaw };
+    const { protocol, yaw } = header;
+    if (!isProtocol(protocol) || typeof yaw !== "number" || !Number.isFinite(yaw)) return invalid();
+    batch = { ...cursor, status, protocol, yaw };
     if (header.paths !== undefined) batch.paths = decodePaths(header.paths);
     if (header.entities !== undefined) batch.entities = decodeEntities(header.entities);
+  } else if (status === "pack_mismatch") {
+    const { protocol, packProtocol } = header;
+    if (!isProtocol(protocol) || typeof packProtocol !== "number" || !Number.isFinite(packProtocol)) return invalid();
+    if (header.paths !== undefined || header.entities !== undefined) return invalid();
+    batch = { ...cursor, status, protocol, packProtocol };
   } else {
     if (header.paths !== undefined || header.entities !== undefined) return invalid();
     batch = { ...cursor, status };

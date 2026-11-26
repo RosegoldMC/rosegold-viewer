@@ -18,7 +18,7 @@ const { ViewerChat, cleanLine, outgoing, MAX_CHAT_CHARS, MAX_CHAT_LINES } = requ
 const { ViewerFeed } = requireModule("./feed.js");
 const { ViewerControl } = requireModule("./viewer-control.js");
 
-const base = { epoch: 1, seq: 1, status: "ready", yaw: 0 };
+const base = { epoch: 1, seq: 1, status: "ready", protocol: 777, yaw: 0 };
 const ctl = (extra = {}) => ({ grant: 7, ack: 0, mode: "available", ...extra });
 
 function viewerControl() {

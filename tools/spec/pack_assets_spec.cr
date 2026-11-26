@@ -52,7 +52,7 @@ def write_zip(path : String, files : Array(Tuple(String, Bytes)), method = Compr
   end
 end
 
-def version_json(id = VERSION, protocol = PROTOCOL) : Bytes
+def version_json(id = "26.3", protocol = 777) : Bytes
   %({"id":"#{id}","protocol_version":#{protocol}}).to_slice
 end
 
@@ -155,7 +155,7 @@ describe PackBuilder::Archive do
       archive.entries.has_key?("version.json").should be_true
       archive.entries.keys.should contain(ASSETS + "blockstates/stone.json")
       archive.read("missing").should be_nil
-      archive.object("version.json").not_nil!["id"].as_s.should eq VERSION
+      archive.object("version.json").not_nil!["id"].as_s.should eq "26.3"
       archive.read("version.json").should eq archive.read("version.json")
       archive.close
     end
@@ -257,6 +257,22 @@ describe PackBuilder::Layers do
       server = File.join(dir, "server.jar")
       write_zip(server, [{"version.json", version_json}])
       expect_raises(Error, /blockstate/) { Layers.new(Archive.new(server)) }
+    end
+  end
+
+  it "maps known 26.1 patch JARs to the 26.1 release" do
+    scratch do |dir|
+      {"26.1.1", "26.1.2"}.each do |id|
+        path = File.join(dir, "#{id}.jar")
+        write_zip(path, [{"version.json", version_json(id, 775)}, {ASSETS + "blockstates/stone.json", "{}".to_slice}])
+        layers = Layers.new(Archive.new(path))
+        {layers.version, layers.protocol}.should eq({"26.1", 775})
+      end
+      {"26.1.3" => 775, "26.1.2" => 777}.each do |id, protocol|
+        path = File.join(dir, "bad-#{id}-#{protocol}.jar")
+        write_zip(path, [{"version.json", version_json(id, protocol)}, {ASSETS + "blockstates/stone.json", "{}".to_slice}])
+        expect_raises(Error, /26\.1\.2/) { Layers.new(Archive.new(path)) }
+      end
     end
   end
 

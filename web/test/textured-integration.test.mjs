@@ -27,7 +27,7 @@ test("intervention marker changes independently of pilot paths and break overlay
   const block = { position: [1, 1, 2], stage: 5 };
   const point = [3, 4, 5];
   const marker = { name: "intervention", color: 0xff4fd8, points: [point] };
-  const frame = { epoch: 1, seq: 1, status: "ready", yaw: 0 };
+  const frame = { epoch: 1, seq: 1, status: "ready", protocol: 777, yaw: 0 };
 
   terrain.apply({ ...frame, paths: [path] });
   terrain.setMarker(point);

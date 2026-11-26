@@ -1,4 +1,4 @@
-import { loadAtlas, type Atlas } from "./atlas.js";
+import { loadAtlas, ProtocolAtlas, type Atlas } from "./atlas.js";
 import { ViewerFeed, type ChatResult, type FeedStatus } from "./feed.js";
 import { TerrainRenderer } from "./renderer.js";
 import { ViewerControl } from "./viewer-control.js";
@@ -13,6 +13,7 @@ import { ViewerTerrain } from "./viewer-terrain.js";
 import { createEntityPackLoader, createEntitySink } from "./entity-glue.js";
 import { ViewerDebug } from "./viewer-debug.js";
 import { bindPairingForm } from "./pairing.js";
+import { packMismatchLabel, type Protocol } from "./protocol.js";
 
 const canvas = document.querySelector("canvas")!;
 const form = document.querySelector("form")!;
@@ -26,11 +27,6 @@ const feedStatus = document.querySelector<HTMLOutputElement>("#feed-status")!;
 const rendererStatus = document.querySelector<HTMLOutputElement>("#renderer-status")!;
 
 const textureStatus = document.querySelector<HTMLOutputElement>("#texture-status")!;
-const atlas = loadAtlas({ fetch: (input, init) => fetch(input, init), createImageBitmap: (blob, options) => createImageBitmap(blob, options) })
-  .catch((): null => {
-    console.warn("Block texture atlas could not be loaded; rendering terrain without textures.");
-    return null;
-  });
 
 const hudRoot = document.querySelector<HTMLElement>("#hud")!;
 const hudHealth = document.querySelector<HTMLElement>("#hud-health")!;
@@ -74,11 +70,17 @@ const carried = document.querySelector<HTMLElement>("#carried")!;
 let loadedAtlas: Atlas | null = null;
 let shownHud: Hud | null = null;
 let shownCue: TutorialCue | null = null;
-void atlas.then(loaded => {
+const atlas = new ProtocolAtlas(() => loadAtlas({ fetch: (input, init) => fetch(input, init), createImageBitmap: (blob, options) => createImageBitmap(blob, options) })
+  .catch((): null => {
+    console.warn("Block texture atlas could not be loaded; rendering terrain without textures.");
+    return null;
+  }), loaded => {
   loadedAtlas = loaded;
   syncIcons(shownHud);
   drawItemIcon(cueIcon, loadedAtlas, shownCue?.item);
   inventoryView.setAtlas(loadedAtlas);
+  active?.setAtlas(loadedAtlas);
+  syncMiningMeter();
 });
 
 function syncIcons(state: Hud | null): void {
@@ -119,7 +121,8 @@ const labels: Record<FeedStatus, string> = {
   pairing: "Pairing…",
   loading: "Loading current terrain…",
   waiting: "Waiting for the bot…",
-  unsupported: "Terrain viewing requires Minecraft 26.3 (protocol 777).",
+  unsupported: "Terrain viewing requires Minecraft 26.1 or 26.3 support in this build.",
+  pack_mismatch: "The viewer pack does not match the bot’s Minecraft version. Build a pack from the matching client JAR.",
   ready: "Connected",
   "rate-limited": "Rate limited. Retrying…",
   expired: "Viewer lease ended. Pair again to reconnect.",
@@ -127,6 +130,7 @@ const labels: Record<FeedStatus, string> = {
   rejected: "Pairing denied. Check the secret and use the current viewer URL.",
 };
 
+let mismatch: { protocol: Protocol; packProtocol: number } | null = null;
 const entityPack = createEntityPackLoader();
 let active: TerrainRenderer | null = null;
 const terrain = new ViewerTerrain(air => {
@@ -147,10 +151,7 @@ const terrain = new ViewerTerrain(air => {
       textureStatus.value = "Local texture pack loaded";
     },
   });
-  void atlas.then(loaded => {
-    if (loaded) renderer.setAtlas(loaded);
-    syncMiningMeter();
-  });
+  if (loadedAtlas) renderer.setAtlas(loadedAtlas);
   active = renderer;
   return renderer;
 }, renderer => createEntitySink(renderer as TerrainRenderer, entityPack));
@@ -332,6 +333,8 @@ const debug = new ViewerDebug(
 );
 const feed = new ViewerFeed({
   apply(batch) {
+    if (batch.status === "ready") atlas.select(batch.protocol);
+    if (batch.status === "pack_mismatch") mismatch = batch;
     terrain.apply(batch);
     hud.apply(batch);
     chat.apply(batch);
@@ -356,7 +359,7 @@ const feed = new ViewerFeed({
   },
   status(status) {
     if (status === "rejected") pairing.rejected();
-    feedStatus.value = labels[status];
+    feedStatus.value = status === "pack_mismatch" && mismatch ? packMismatchLabel(mismatch.protocol, mismatch.packProtocol) : labels[status];
     const attached = status !== "detached" && status !== "expired" && status !== "offline" && status !== "rejected";
     form.hidden = attached;
     if (!attached) control.reset();

@@ -1,4 +1,5 @@
 require "./pull_request"
+require "./protocol"
 
 module RosegoldViewer
   private class ManualController
@@ -49,9 +50,9 @@ module RosegoldViewer
     @deadline : Time::Instant?
     @watcher : Channel(Nil)?
     @queued : Tuple(Input, Time::Instant, Proc(Bool)?)?
-    @names : Hash(UInt32, String)?
+    @names = {} of UInt32 => Hash(UInt32, String)
 
-    def initialize(@protocol : UInt32)
+    def initialize(@pack_protocol : Float64? = nil)
     end
 
     def bind(bot : Rosegold::Bot) : Nil
@@ -71,7 +72,7 @@ module RosegoldViewer
     end
 
     def manual_control_enabled? : Bool
-      @enabled
+      @enabled && compatible?
     end
 
     def manual_inventory_unresolved? : Bool
@@ -277,7 +278,12 @@ module RosegoldViewer
     private def ready? : Bool
       return false unless @enabled && (bot = @bot) && bot.spawned?
       client = bot.client
-      client.current_protocol_state == Rosegold::ProtocolState::PLAY && client.connection?.try(&.protocol_version) == @protocol
+      !!client.connection? && compatible? && client.current_protocol_state == Rosegold::ProtocolState::PLAY
+    end
+
+    private def compatible? : Bool
+      return true unless protocol = @bot.try(&.client.connection?).try(&.protocol_version)
+      RosegoldViewer.supports_protocol?(protocol) && RosegoldViewer.pack_matches?(protocol, @pack_protocol)
     end
 
     private def takeover_available? : Bool
@@ -539,7 +545,8 @@ module RosegoldViewer
 
     private def item(slot : Rosegold::Slot) : Item?
       return if slot.empty?
-      names = @names ||= Rosegold::MCData.for(@protocol).items.to_h do |item|
+      return unless protocol = @bot.try(&.client.connection?).try(&.protocol_version)
+      names = @names[protocol] ||= Rosegold::MCData.for(protocol).items.to_h do |item|
         name = item.name
         {item.id, name.matches?(/\A[a-z0-9_]{1,64}\z/) ? name : "unknown_item"}
       end

@@ -29,6 +29,8 @@ module RosegoldViewer
       entries
     end
 
+    getter protocol : Float64?
+
     @assets = {} of String => Asset
 
     # Raises ArgumentError if *directory* is not a directory. Missing, oversized, symlinked,
@@ -42,6 +44,10 @@ module RosegoldViewer
         next unless bytes && total + bytes.size <= MAX_TOTAL_BYTES
         total += bytes.size
         @assets[key] = Asset.new(bytes, entry.json ? "application/json" : "image/png")
+      end
+      if atlas = @assets["atlas.json"]?
+        value = JSON.parse(String.new(atlas.bytes)).as_h?.try(&.["protocol"]?)
+        @protocol = value.try(&.as_i64?).try(&.to_f64) || value.try(&.as_f?)
       end
     end
 

@@ -1,12 +1,13 @@
 require "json"
+require "./entities"
 
 class Rosegold::Interactions
-  def debug_crosshair : {Symbol, Vec3i?, UInt16?, String?}?
+  def debug_crosshair : {Symbol, Vec3i?, UInt16?, UInt32?}?
     case hit = reach_block_or_entity
     when ReachedBlock
       {:block, hit.block, client.dimension.block_state(hit.block), nil}
     when ReachedEntity
-      {:entity, nil, nil, hit.entity.metadata.try(&.name)}
+      {:entity, nil, nil, hit.entity.entity_type}
     end
   end
 end
@@ -34,7 +35,7 @@ module RosegoldViewer
     def initialize(@protocol : UInt32)
     end
 
-    def sample(bot : Rosegold::Bot) : Snapshot
+    def sample(bot : Rosegold::Bot, entities : Entities) : Snapshot
       feet = bot.location
       look = bot.look
       dimension = bot.world
@@ -43,16 +44,16 @@ module RosegoldViewer
         rotation:  {look.yaw.finite? ? look.yaw : 0_f32, look.pitch.finite? ? look.pitch.clamp(-90_f32, 90_f32) : 0_f32},
         dimension: dimension.name.size <= 64 ? dimension.name : "unknown",
         time:      dimension.world_age.zero? ? nil : dimension.time_of_day,
-        target:    target(bot),
+        target:    target(bot, entities),
       }
     end
 
-    private def target(bot : Rosegold::Bot) : Target?
+    private def target(bot : Rosegold::Bot, entities : Entities) : Target?
       hit = bot.client.debug_crosshair
       return unless hit
       kind, position, state, entity = hit
       if kind == :entity
-        return {kind: "entity", position: nil, id: entity.try { |name| qualified(name) }, props: nil}
+        return {kind: "entity", position: nil, id: entity.try { |id| entities.name_for(id) }.try { |name| qualified(name) }, props: nil}
       end
       return unless position
       block = state.try { |value| find_block(value) }

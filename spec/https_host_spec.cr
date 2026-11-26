@@ -1,6 +1,6 @@
 require "spec"
 require "http/client"
-require "rosegold/26.3"
+require "rosegold"
 require "../src/rosegold-viewer"
 
 private def viewer_https_port : Int32

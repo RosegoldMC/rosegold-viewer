@@ -88,7 +88,7 @@ module PackBuilder
     paths = [] of String
     help = false
     parser = OptionParser.new do |options|
-      options.banner = "Usage: build-pack CLIENT_JAR NEW_PACK_DIR [--resource-pack ZIP]\nBuild a local Rosegold Viewer pack from a Minecraft Java #{VERSION} client JAR (protocol #{PROTOCOL})."
+      options.banner = "Usage: build-pack CLIENT_JAR NEW_PACK_DIR [--resource-pack ZIP]\nBuild a local Rosegold Viewer pack from a Minecraft Java 26.1, 26.1.1, 26.1.2 (775) or 26.3 (777) client JAR."
       options.on("--resource-pack ZIP", "Optional resource pack layered over vanilla") { |value| overlay = value }
       options.on("-h", "--help", "Show this help") { help = true }
       options.unknown_args { |before, after| paths = before + after }

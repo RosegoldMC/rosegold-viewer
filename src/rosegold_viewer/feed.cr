@@ -5,13 +5,13 @@ require "./entities"
 require "./hud"
 require "./manual_controller"
 require "./paths"
+require "./protocol"
 
 module RosegoldViewer
   class Feed
     MAX_BATCH         = 16 * 1024
     private CHAT_SEND_TIMEOUT = 500.milliseconds
-    private PROTOCOL          = 777_u32
-    private RADIUS            =       2
+    private RADIUS            = 2
     private INTERVAL          = 50.milliseconds
     private DEBUG_INTERVAL    = 250.milliseconds
 
@@ -41,9 +41,10 @@ module RosegoldViewer
     @refresh_index = 0
     @last_sample : Time::Instant?
     @air : Array(UInt16)?
-    @paths = Paths.new(PROTOCOL)
+    @protocol : UInt32 = Rosegold::Client::LATEST_PROTOCOL
+    @paths = Paths.new
     @sent_paths : Paths::Snapshot?
-    @hud = Hud.new(PROTOCOL)
+    @hud = Hud.new(Rosegold::Client::LATEST_PROTOCOL)
     @sent_hud : Hud::Snapshot?
     @chat = ChatHistory.new
     @sent_chat_epoch : UInt32?
@@ -51,13 +52,19 @@ module RosegoldViewer
     @chat_submit_id = 0_u32
     @last_chat_submit : Time::Instant?
     @chat_sending = false
-    @entities = Entities.new(PROTOCOL)
+    @skins = PlayerSkins.new
+    @entities : Entities
     @sent_entities : String?
-    @debug = Debug.new(PROTOCOL)
+    @debug = Debug.new(Rosegold::Client::LATEST_PROTOCOL)
     @sent_debug : Debug::Snapshot?
     @last_debug : Time::Instant?
-    getter control = ManualController.new(PROTOCOL)
+    getter control : ManualController
     @sent_control : ManualController::Snapshot?
+
+    def initialize(@pack_protocol : Float64? = nil)
+      @entities = Entities.new(@protocol, @skins)
+      @control = ManualController.new(@pack_protocol)
+    end
 
     def bind(bot : Rosegold::Bot) : Nil
       unsubscribe
@@ -73,11 +80,11 @@ module RosegoldViewer
     end
 
     def set_player_skin(uuid : UUID, path : String, *, slim : Bool) : Bool
-      @entities.skins.register(uuid, path, slim: slim)
+      @skins.register(uuid, path, slim: slim)
     end
 
     def skin_asset(key : String) : Bytes?
-      @entities.skins.asset(key)
+      @skins.asset(key)
     end
 
     def draw_path(name : String, points : Enumerable(T), *, color : UInt32) : Bool forall T
@@ -156,7 +163,8 @@ module RosegoldViewer
 
       connection = @connection
       return status_frame("waiting") unless connection
-      return status_frame("unsupported") unless connection.protocol_version == PROTOCOL
+      return status_frame("unsupported") unless RosegoldViewer.supports_protocol?(connection.protocol_version)
+      return status_frame("pack_mismatch") unless RosegoldViewer.pack_matches?(connection.protocol_version, @pack_protocol)
       unless bot && client && client.current_protocol_state == Rosegold::ProtocolState::PLAY
         session_changed if @world
         return status_frame("waiting")
@@ -207,7 +215,7 @@ module RosegoldViewer
         return
       end
       @last_debug = time
-      sample = @debug.sample(bot)
+      sample = @debug.sample(bot, @entities)
       sample unless sample == @sent_debug
     end
 
@@ -353,7 +361,7 @@ module RosegoldViewer
       {% end %}
       hook(client, owner, Rosegold::Clientbound::Login) do
         if (connection = client.connection?) && connection.open? && client.current_protocol_state == Rosegold::ProtocolState::PLAY
-          @connection = connection
+          use_connection(connection)
           session_changed
         end
       end
@@ -425,8 +433,19 @@ module RosegoldViewer
       connection = nil if connection.try(&.closed?)
       return if @connection == connection
       previous = @connection
-      @connection = connection
+      use_connection(connection)
       previous ? session_changed : reset
+    end
+
+    private def use_connection(connection : Rosegold::Connection::Client?) : Nil
+      @connection = connection
+      if connection && connection.protocol_version != @protocol && RosegoldViewer.supports_protocol?(connection.protocol_version)
+        @protocol = connection.protocol_version
+        @air = nil
+        @hud = Hud.new(@protocol)
+        @entities = Entities.new(@protocol, @skins)
+        @debug = Debug.new(@protocol)
+      end
     end
 
     private def session_changed : Nil
@@ -452,7 +471,8 @@ module RosegoldViewer
     end
 
     private def live_play?(client : Rosegold::Client) : Bool
-      @connection.try(&.protocol_version) == PROTOCOL && current_connection?(client) && client.current_protocol_state == Rosegold::ProtocolState::PLAY
+      protocol = @connection.try &.protocol_version
+      !!protocol && RosegoldViewer.supports_protocol?(protocol) && RosegoldViewer.pack_matches?(protocol, @pack_protocol) && current_connection?(client) && client.current_protocol_state == Rosegold::ProtocolState::PLAY
     end
 
     private def sample_pose(bot : Rosegold::Bot) : Pose
@@ -603,12 +623,17 @@ module RosegoldViewer
           json.field "epoch", @epoch
           json.field "seq", @seq
           json.field "status", status
+          if status == "pack_mismatch" && (connection = @connection) && (pack_protocol = @pack_protocol)
+            json.field "protocol", connection.protocol_version
+            json.field "packProtocol", pack_protocol
+          end
           if pose
             json.field "center", pose.center
             json.field "eye", pose.eye
             json.field "look", pose.look
             json.field "yaw", pose.yaw
-            json.field "air", @air ||= Rosegold::MCData.for(PROTOCOL).air_states.to_a.sort!
+            json.field "protocol", @protocol
+            json.field "air", @air ||= Rosegold::MCData.for(@protocol).air_states.to_a.sort!
             json.field "paths", paths.values if paths
             json.field "hud", hud if hud
             json.field("entities") { json.raw(entities) } if entities

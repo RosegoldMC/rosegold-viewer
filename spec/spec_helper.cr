@@ -1,7 +1,7 @@
 require "spec"
 require "file_utils"
 require "http/client"
-require "rosegold/26.3"
+require "rosegold"
 require "../src/rosegold-viewer"
 
 PNG_HEADER = Bytes[137, 80, 78, 71, 13, 10, 26, 10]

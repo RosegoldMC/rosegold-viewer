@@ -1,3 +1,4 @@
+import { isProtocol, type Protocol } from "./protocol.js";
 import type { ModelQuad } from "./block-models.js";
 import { LIQUID_SPRITES, type LiquidAnimations, type LiquidFrame } from "./liquid.js";
 
@@ -10,7 +11,6 @@ export const MAX_RANGES = 8192;
 export const MAX_ITEM_ICONS = 1024;
 export const MAX_ITEM_BLOCKS = 1024;
 export const NO_TILE = -1;
-export const PROTOCOL = 777;
 export const BREAK_STAGES = 10;
 
 const MODEL_VARIANT_MAX = {
@@ -33,6 +33,7 @@ export type FaceTiles = readonly [number, number, number, number, number, number
 type BlockRange = { min: number; max: number; faces: FaceTiles; model?: BlockModel; variant?: number };
 
 export interface Atlas {
+  readonly protocol: Protocol;
   readonly image: ImageBitmap;
   readonly columns: number;
   readonly rows: number;
@@ -55,6 +56,7 @@ export interface Registry {
 }
 
 export interface Manifest {
+  readonly protocol: Protocol;
   readonly registry?: Registry;
   readonly invisible?: readonly (readonly [min: number, max: number])[];
   readonly columns: number;
@@ -73,7 +75,8 @@ function isInt(value: unknown, min: number, max: number): value is number {
 
 export function parseManifest(value: unknown): Manifest {
   const root = value as Record<string, unknown> | null;
-  if (!root || typeof root !== "object" || root.protocol !== PROTOCOL || root.tileSize !== TILE_SIZE) throw new Error("Unsupported atlas manifest");
+  const protocol = root?.protocol;
+  if (!root || typeof root !== "object" || !isProtocol(protocol) || root.tileSize !== TILE_SIZE) throw new Error("Unsupported atlas manifest");
   const { columns, rows, blocks } = root;
   if (!isInt(columns, 1, MAX_COLUMNS) || !isInt(rows, 1, MAX_ROWS)) throw new Error("Atlas exceeds bounds");
   if (!Array.isArray(blocks) || blocks.length > MAX_RANGES) throw new Error("Invalid atlas blocks");
@@ -108,7 +111,7 @@ export function parseManifest(value: unknown): Manifest {
   ranges.sort((a, b) => a.min - b.min);
   for (let i = 1; i < ranges.length; i++) if (ranges[i].min <= ranges[i - 1].max) throw new Error("Overlapping atlas ranges");
   const tiles = columns * rows;
-  return { columns, rows, ranges: legacy.size ? ranges.filter(range => !legacy.has(range)) : ranges, meshes, breakStages: parseBreakStages(root.breakStages, tiles),
+  return { protocol, columns, rows, ranges: legacy.size ? ranges.filter(range => !legacy.has(range)) : ranges, meshes, breakStages: parseBreakStages(root.breakStages, tiles),
     itemIcons: parseItemIcons(root.itemIcons, tiles), itemBlocks: parseItemBlocks(root.itemBlocks, tiles), animations: parseAnimations(root.animations, tiles),
     registry: parseRegistry(root.registry), invisible: parseInvisible(root.invisible) };
 }
@@ -334,9 +337,32 @@ export async function loadAtlas(deps: AtlasLoaderDeps, base = "/local-pack/"): P
     image.close?.();
     throw new Error("Atlas image does not match its manifest");
   }
-  return { image, columns: manifest.columns, rows: manifest.rows, breakStages: manifest.breakStages, itemIcons: manifest.itemIcons, itemBlocks: manifest.itemBlocks,
+  return { protocol: manifest.protocol, image, columns: manifest.columns, rows: manifest.rows, breakStages: manifest.breakStages, itemIcons: manifest.itemIcons, itemBlocks: manifest.itemBlocks,
     animations: manifest.animations, meshes: manifest.meshes, tilesFor: lookupTiles(manifest), modelFor: lookupModels(manifest), variantFor: lookupVariants(manifest),
     ...registryLookups(manifest) };
+}
+
+export class ProtocolAtlas {
+  private selected: Protocol | null = null;
+  private loading: Promise<Atlas | null>;
+
+  constructor(private readonly load: () => Promise<Atlas | null>, private readonly show: (atlas: Atlas | null) => void) {
+    this.loading = this.fetch();
+  }
+
+  select(protocol: Protocol): void {
+    if (protocol === this.selected) return;
+    this.selected = protocol;
+    this.show(null);
+    const loading = this.loading = this.loading.then(atlas => atlas?.protocol === protocol ? atlas : this.fetch());
+    void loading.then(atlas => {
+      if (this.loading === loading) this.show(atlas?.protocol === protocol ? atlas : null);
+    });
+  }
+
+  private fetch(): Promise<Atlas | null> {
+    return this.load().catch(() => null);
+  }
 }
 
 function registryLookups(manifest: Manifest): Pick<Atlas, "nameFor" | "invisibleFor" | "registered"> {

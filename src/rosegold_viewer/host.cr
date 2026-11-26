@@ -42,7 +42,7 @@ module RosegoldViewer
     end
 
     @transport = LoopbackHost.new
-    @feed = Feed.new
+    @feed : Feed
     @pack : Pack?
     @generation : Generation?
 
@@ -59,6 +59,7 @@ module RosegoldViewer
         raise ArgumentError.new("Pairing secret must be 64 lowercase hexadecimal characters") unless /\A[0-9a-f]{64}\z/.matches?(secret)
       end
       @pack = pack_directory.try { |directory| Pack.new(directory) }
+      @feed = Feed.new(@pack.try(&.protocol))
     end
 
     def inspect(io : IO) : Nil

@@ -25,10 +25,10 @@ function bytes(data) {
   new DataView(out.buffer).setUint16(0, json.length, true);
   return out;
 }
-const base = { epoch: 1, seq: 1, status: "ready", yaw: 0 };
+const base = { epoch: 1, seq: 1, status: "ready", protocol: 777, yaw: 0 };
 const info = { feet: [-0.5, 64, -17.25], rotation: [0, 0], dimension: "minecraft:overworld", time: 25000, target: null };
 
-const baseView = { feed: "ready", control: "view", info, fps: { fps: 60, average: 16.7, worst: 20 }, sections: 12, gpu: "Test GPU", viewport: { width: 800, height: 600, ratio: 2 } };
+const baseView = { feed: "ready", protocol: 775, control: "view", info, fps: { fps: 60, average: 16.7, worst: 20 }, sections: 12, gpu: "Test GPU", viewport: { width: 800, height: 600, ratio: 2 } };
 
 test("decodes debug info and rejects malformed values", () => {
   const target = { kind: "block", position: [-3, 64, 5], id: "minecraft:oak_stairs", props: { facing: "north", waterlogged: "false" } };
@@ -45,6 +45,7 @@ test("decodes debug info and rejects malformed values", () => {
 
 test("floors block, local and chunk coordinates for negatives", () => {
   const lines = formatDebug(baseView).left;
+  assert.equal(lines[0], "Minecraft 26.1 (protocol 775)");
   assert.ok(lines.includes("XYZ: -0.500 / 64.000 / -17.250"));
   assert.ok(lines.includes("Block: -1 64 -18"));
   assert.ok(lines.includes("Chunk: 15 0 14 in -1 4 -2"));
@@ -135,4 +136,15 @@ test("clears stale values on reset, epoch change and non-ready status", () => {
   debug.apply({ ...base, epoch: 3, debug: info });
   debug.reset();
   assert.ok(left.children.some(row => row.textContent === "XYZ: n/a"));
+});
+
+test("shows the bot's version while the pack does not match", () => {
+  const { debug, left } = harness();
+  debug.toggle();
+  debug.apply(decodeBatch(bytes({ epoch: 4, seq: 1, status: "pack_mismatch", protocol: 775, packProtocol: 777 })));
+  debug.setStatus("pack_mismatch");
+  assert.equal(left.children[0].textContent, "Minecraft 26.1 (protocol 775)");
+  assert.ok(left.children.some(row => row.textContent === "XYZ: n/a"));
+  debug.setStatus("waiting");
+  assert.equal(left.children[0].textContent, "Minecraft: n/a");
 });

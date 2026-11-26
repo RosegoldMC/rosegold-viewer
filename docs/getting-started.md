@@ -5,7 +5,7 @@ description: Add Rosegold Viewer to a Crystal bot, build a local texture pack, a
 
 # Getting started
 
-You need Crystal 1.17 or newer and a Rosegold bot for Minecraft Java 26.3. The viewer runs inside that bot process, so there's nothing else to deploy.
+You need Crystal 1.17 or newer and a Rosegold bot for Minecraft Java 26.1 or 26.3. The viewer runs inside that bot process, so there's nothing else to deploy.
 
 ## 1. Add the shard
 
@@ -15,14 +15,14 @@ In your bot's `shard.yml`:
 dependencies:
   rosegold-viewer:
     github: RosegoldMC/rosegold-viewer
-    version: ~> 0.2.0
+    version: ~> 0.3.0
 ```
 
 Then run `shards install`.
 
 ## 2. Build a texture pack
 
-The viewer draws from a pack you prepare locally. Use your own Minecraft Java 26.3 client JAR, usually at `versions/26.3/26.3.jar` in the launcher's game folder. The shard doesn't redistribute textures.
+The viewer draws from a pack you prepare locally. Use your own Minecraft Java 26.1.x (26.1 through 26.1.2) or 26.3 client JAR from the launcher's `versions` folder, such as `versions/26.1.2/26.1.2.jar` or `versions/26.3/26.3.jar`. The pack must match the bot's connection version. The shard doesn't redistribute textures.
 
 ```sh
 crystal run lib/rosegold-viewer/tools/build-pack.cr -- /path/to/26.3.jar ./viewer-pack
@@ -36,6 +36,8 @@ The builder needs `pkg-config` and libpng development files (`libpng-dev` on Deb
 ## 3. Mount it on your bot
 
 Require Rosegold first, then the shard:
+
+For 26.1, use `require "rosegold/26.1"` or keep your existing `require "rosegold"`.
 
 ```crystal
 require "rosegold/26.3"

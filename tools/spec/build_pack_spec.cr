@@ -48,9 +48,9 @@ module PackFixture
       files[Terrain.texture_path(name)] = png(image)
     end
 
-    def client : String
+    def client(version = "26.3", protocol = 777) : String
       files = {
-        "version.json"                            => {id: "26.3", protocol_version: 777}.to_json.to_slice,
+        "version.json"                            => {id: version, protocol_version: protocol}.to_json.to_slice,
         ASSETS + "blockstates/stone.json"         => %({"variants":{}}).to_slice,
         ASSETS + "blockstates/iron_ore.json"      => %({"variants":{"":{"model":"block/fixture_cube","y":90}}}).to_slice,
         ASSETS + "models/block/fixture_cube.json" => %({"parent":"block/fixture_parent","textures":{"side":"block/diamond_block","accent":"block/fixture_face"}}).to_slice,
@@ -179,44 +179,46 @@ module PackFixture
 end
 
 describe PackBuilder do
-  it "generates the viewer contract with exact cube orientation, animation, crops, and composited entity textures" do
-    PackFixture.with do |f|
-      PackBuilder.build(f.client, f.path("pack"))
-      atlas = f.manifest("atlas")
-      atlas["protocol"].as_i.should eq 777
-      atlas["tileSize"].as_i.should eq 16
-      atlas["registry"]["max"].as_i.should eq 35722
-      f.state(atlas, "water", 15)["variant"].as_i.should eq 15
-      atlas["animations"]["waterFlow"].as_a.map { |entry| entry[1].as_i }.should eq [1, 3]
-      atlas["breakStages"].as_a.size.should eq 10
-      sheet = f.image("pack/atlas.png")
-      {sheet.width, sheet.height}.should eq({atlas["columns"].as_i * 16, atlas["rows"].as_i * 16})
-      torch = f.state(atlas, "torch")
-      torch["model"].as_s.should eq "torch"
-      torch["faces"].as_a.uniq.should eq [atlas["itemIcons"]["torch"]]
-      f.sample(atlas, sheet, torch["faces"][0], 0, 0).should eq PackFixture::ALPHA
-      f.sample(atlas, sheet, torch["faces"][0], 1, 1).should eq({0_u8, 0_u8, 0_u8, 0_u8})
-      ore = f.state(atlas, "iron_ore")["faces"]
-      f.sample(atlas, sheet, ore[0], 1, 1).should eq PackFixture::BETA
-      f.sample(atlas, sheet, ore[0], 0, 0).should eq PackFixture::ALPHA
-      f.sample(atlas, sheet, ore[1], 1, 1).should eq PackFixture::GAMMA
-      f.sample(atlas, sheet, atlas["itemIcons"]["apple"], 1, 1).should eq PackFixture::GAMMA
-      chest = f.image("pack/gui/chest_6.png")
-      {chest.width, chest.height}.should eq({176, 222})
-      chest.pixel(0, 0).should eq PackFixture::GAMMA
-      chest.pixel(1, 200).should eq PackFixture::ALPHA
-      f.image("pack/gui/anvil.png").pixel(59, 20).should eq PackFixture::BETA
-      Dir.children(f.path("pack/gui")).size.should eq 25
-      entities = f.manifest("entities")
-      entities["textures"].as_h.size.should eq 25
-      person = entities["textures"]["villager"]
-      x, y = person[0].as_i, person[1].as_i
-      f.image("pack/entities.png").pixel(x, y).should eq PackFixture::BETA
-      f.image("pack/entities.png").pixel(x + 1, y).should eq PackFixture::ALPHA
-      expect_raises(PackBuilder::Error, "output already exists") do
-        PackBuilder.build(f.path("client.jar"), f.path("pack"))
+  { {"26.1", 775, 29872}, {"26.3", 777, 35722} }.each do |version, protocol, max|
+    it "generates the viewer contract for #{version} with exact cube orientation, animation, crops, and composited entity textures" do
+      PackFixture.with do |f|
+        PackBuilder.build(f.client(version, protocol), f.path("pack"))
+        atlas = f.manifest("atlas")
+        atlas["protocol"].as_i.should eq protocol
+        atlas["tileSize"].as_i.should eq 16
+        atlas["registry"]["max"].as_i.should eq max
+        f.state(atlas, "water", 15)["variant"].as_i.should eq 15
+        atlas["animations"]["waterFlow"].as_a.map { |entry| entry[1].as_i }.should eq [1, 3]
+        atlas["breakStages"].as_a.size.should eq 10
+        sheet = f.image("pack/atlas.png")
+        {sheet.width, sheet.height}.should eq({atlas["columns"].as_i * 16, atlas["rows"].as_i * 16})
+        torch = f.state(atlas, "torch")
+        torch["model"].as_s.should eq "torch"
+        torch["faces"].as_a.uniq.should eq [atlas["itemIcons"]["torch"]]
+        f.sample(atlas, sheet, torch["faces"][0], 0, 0).should eq PackFixture::ALPHA
+        f.sample(atlas, sheet, torch["faces"][0], 1, 1).should eq({0_u8, 0_u8, 0_u8, 0_u8})
+        ore = f.state(atlas, "iron_ore")["faces"]
+        f.sample(atlas, sheet, ore[0], 1, 1).should eq PackFixture::BETA
+        f.sample(atlas, sheet, ore[0], 0, 0).should eq PackFixture::ALPHA
+        f.sample(atlas, sheet, ore[1], 1, 1).should eq PackFixture::GAMMA
+        f.sample(atlas, sheet, atlas["itemIcons"]["apple"], 1, 1).should eq PackFixture::GAMMA
+        chest = f.image("pack/gui/chest_6.png")
+        {chest.width, chest.height}.should eq({176, 222})
+        chest.pixel(0, 0).should eq PackFixture::GAMMA
+        chest.pixel(1, 200).should eq PackFixture::ALPHA
+        f.image("pack/gui/anvil.png").pixel(59, 20).should eq PackFixture::BETA
+        Dir.children(f.path("pack/gui")).size.should eq 25
+        entities = f.manifest("entities")
+        entities["textures"].as_h.size.should eq 25
+        person = entities["textures"]["villager"]
+        x, y = person[0].as_i, person[1].as_i
+        f.image("pack/entities.png").pixel(x, y).should eq PackFixture::BETA
+        f.image("pack/entities.png").pixel(x + 1, y).should eq PackFixture::ALPHA
+        expect_raises(PackBuilder::Error, "output already exists") do
+          PackBuilder.build(f.path("client.jar"), f.path("pack"))
+        end
+        f.manifest("atlas").should eq atlas
       end
-      f.manifest("atlas").should eq atlas
     end
   end
 

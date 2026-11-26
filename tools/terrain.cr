@@ -487,7 +487,7 @@ module PackBuilder::Terrain
   end
 
   def self.build(assets : Layers, output : String) : Nil
-    registry = File.open(File.join(__DIR__, "states-26.3.json")) { |io| JSON.parse(io) }
+    registry = File.open(File.join(__DIR__, "states-#{assets.version}.json")) { |io| JSON.parse(io) }
     blocks = registry["blocks"].as_a.map do |row|
       Block.new(row[0].as_s, row[1].as_i, row[2].as_h.transform_values { |values| values.as_a.map(&.as_s) })
     end
@@ -507,7 +507,7 @@ module PackBuilder::Terrain
     rows = (atlas.images.size + columns - 1) // columns
     manifest = JSON.build do |json|
       json.object do
-        json.field "protocol", PROTOCOL
+        json.field "protocol", assets.protocol
         json.field "tileSize", TILE
         json.field "columns", columns
         json.field "rows", rows

@@ -1,11 +1,11 @@
 import type { Vec3 } from "./renderer.js";
 import type { DebugInfo } from "./wire.js";
 
-export const MINECRAFT_VERSION = "26.3";
-export const PROTOCOL_VERSION = 777;
+import { minecraftVersions, type Protocol } from "./protocol.js";
 
 export interface DebugView {
   readonly feed: string;
+  readonly protocol: Protocol | null;
   readonly control: string;
   readonly info: DebugInfo | null;
   readonly fps: { readonly fps: number; readonly average: number; readonly worst: number } | null;
@@ -54,7 +54,8 @@ function worldTime(time: number): string {
 }
 
 export function formatDebug(view: DebugView): DebugLines {
-  const left = [`Minecraft ${MINECRAFT_VERSION} (protocol ${PROTOCOL_VERSION})`];
+  const protocol = view.protocol;
+  const left = [protocol ? `Minecraft ${minecraftVersions[protocol]} (protocol ${protocol})` : "Minecraft: " + unavailable];
   left.push(view.fps
     ? `${view.fps.fps} fps (avg ${fixed(view.fps.average, 1)} ms, worst ${fixed(view.fps.worst, 1)} ms)`
     : "fps: measuring");

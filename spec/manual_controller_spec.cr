@@ -22,9 +22,9 @@ end
 class ViewerSpecClient < Rosegold::Client
   getter sink = ViewerSpecSink.new
 
-  def initialize
+  def initialize(protocol : UInt32 = 777_u32)
     super("localhost", offline: {uuid: "00000000-0000-0000-0000-000000000000", username: "viewerspec"})
-    @connection = Rosegold::Connection::Client.new(Minecraft::IO::Wrap.new(sink), Rosegold::ProtocolState::PLAY, protocol_version, self)
+    @connection = Rosegold::Connection::Client.new(Minecraft::IO::Wrap.new(sink), Rosegold::ProtocolState::PLAY, protocol, self)
     set_protocol_state(Rosegold::ProtocolState::PLAY)
     physics.unpause_for_spawn_chunk
     player.feet = Rosegold::Vec3d.new(0, 0, 0)
@@ -33,7 +33,7 @@ class ViewerSpecClient < Rosegold::Client
   def close_windows : Array(Bytes)
     io = Minecraft::IO::Memory.new(sink.memory.to_slice.dup)
     frames = [] of Bytes
-    close_id = Rosegold::Serverbound::CloseWindow.packet_id_for_protocol(protocol_version)
+    close_id = Rosegold::Serverbound::CloseWindow.packet_id_for_protocol(connection.protocol_version)
     while io.pos < io.size
       payload = Bytes.new(io.read_var_int)
       io.read_fully(payload)
@@ -44,8 +44,8 @@ class ViewerSpecClient < Rosegold::Client
 end
 
 module RosegoldViewer
-  def self.spec_controller(bot : Rosegold::Bot) : ManualController
-    ManualController.new(777_u32).tap do |controller|
+  def self.spec_controller(bot : Rosegold::Bot, pack_protocol : Float64? = nil) : ManualController
+    ManualController.new(pack_protocol).tap do |controller|
       controller.bind(bot)
       controller.enable
     end
@@ -274,11 +274,37 @@ module RosegoldViewer
 end
 
 describe RosegoldViewer do
-  it "writes a player inventory close while the grant is unchanged" do
-    client = ViewerSpecClient.new
+  {775_u32, 777_u32}.each do |protocol|
+    it "writes a player inventory close on #{protocol} while the grant is unchanged" do
+      Rosegold::Client.protocol_version = protocol
+      client = ViewerSpecClient.new(protocol)
+      bot = Rosegold::Bot.new(client)
+      closes = RosegoldViewer.spec_close_player_inventory(client, bot)
+      closes.should eq 1
+    ensure
+      Rosegold::Client.reset_protocol_version!
+    end
+  end
+
+  {775_u32 => 777.0, 777_u32 => 775.0, 776_u32 => nil}.each do |protocol, pack_protocol|
+    it "refuses a native debug grant on #{protocol} with pack #{pack_protocol.inspect}" do
+      client = ViewerSpecClient.new(protocol)
+      bot = Rosegold::Bot.new(client)
+      controller = RosegoldViewer.spec_controller(bot, pack_protocol)
+      controller.manual_control_enabled?.should be_false
+      error = expect_raises(Rosegold::ManualControl::Cancelled) { bot.manual_debug_until_button_pressed_in_menu }
+      error.reason.host_disabled?.should be_true
+      client.manual_control.grant.should be_nil
+      bot.manual_control?.should be_false
+    end
+  end
+
+  it "grants native control when the pack matches the connection" do
+    client = ViewerSpecClient.new(775_u32)
     bot = Rosegold::Bot.new(client)
-    closes = RosegoldViewer.spec_close_player_inventory(client, bot)
-    closes.should eq 1
+    controller = RosegoldViewer.spec_controller(bot, 775.0)
+    controller.manual_control_enabled?.should be_true
+    client.manual_control.grant.should_not be_nil
   end
 
   it "drops a blocked close when the wire grant rotates before the write" do

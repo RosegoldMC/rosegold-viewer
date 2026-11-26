@@ -254,7 +254,7 @@ function bytes(data) {
   return out;
 }
 
-const base = { epoch: 1, seq: 1, status: "ready", yaw: 0 };
+const base = { epoch: 1, seq: 1, status: "ready", protocol: 777, yaw: 0 };
 const ctl = (extra = {}) => ({ grant: 7, ack: 0, mode: "available", ...extra });
 
 test("decodes control and inventory; null clears; rejects malformed", () => {

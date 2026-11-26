@@ -4,11 +4,23 @@ import { compile, fromSource, root } from "./compile.mjs";
 
 const dist = join(root, "dist");
 const outputs = new Map();
-const rendererModules = ["camera", "liquid", "terrain", "atlas", "block-models", "entity-geometry", "entity-skin", "entity-state", "entity-layer", "entity-glue", "renderer"];
 
-function bundle(entry, others) {
-  const modules = [...rendererModules, ...others, entry].map(name =>
-    `  "./${name}.js": (require, exports) => {\n${compile(name, true)}  },`);
+function bundle(entry) {
+  const sources = new Map();
+  const pending = [entry];
+  while (pending.length > 0) {
+    const name = pending.shift();
+    if (sources.has(name)) continue;
+    const source = compile(name, true);
+    sources.set(name, source);
+    for (const [, path] of source.matchAll(/\brequire\("([^"]*)"\)/g)) {
+      const local = /^\.\/([\w-]+)\.js$/.exec(path);
+      if (!local) throw new Error(`${name}.ts requires unsupported module ${path}`);
+      pending.push(local[1]);
+    }
+  }
+  const modules = [...sources].map(([name, source]) =>
+    `  "./${name}.js": (require, exports) => {\n${source}  },`);
   return `(() => {
 const modules = {
 ${modules.join("\n")}
@@ -28,7 +40,7 @@ require("./${entry}.js");
 }
 
 for (const name of ["index.html", "viewer.css"]) outputs.set(name, fromSource(name));
-outputs.set("viewer-bundle.js", bundle("viewer", ["wire", "feed", "input", "touch", "control", "inventory", "viewer-terrain", "viewer-hud", "chat", "debug-format", "viewer-debug", "viewer-inventory", "viewer-control"]));
+outputs.set("viewer-bundle.js", bundle("viewer"));
 
 const check = process.argv.includes("--check");
 if (!check) mkdirSync(dist, { recursive: true });

@@ -22,10 +22,9 @@ lib LibPNG
 end
 
 module PackBuilder
-  VERSION         = "26.3"
-  PROTOCOL        = 777
-  RESOURCE_FORMAT = {97_i64, 1_i64}
-  ASSETS          = "assets/minecraft/"
+  VERSIONS = {"26.1" => {775, {84_i64, 0_i64}}, "26.3" => {777, {97_i64, 1_i64}}}
+  RELEASES = {"26.1" => "26.1", "26.1.1" => "26.1", "26.1.2" => "26.1", "26.3" => "26.3"}
+  ASSETS   = "assets/minecraft/"
 
   alias Color = Tuple(UInt8, UInt8, UInt8, UInt8)
 
@@ -460,13 +459,20 @@ module PackBuilder
     getter overlay : Archive?
     getter skipped = Set(Tuple(String, String)).new
     getter archives : Array(Archive)
+    getter version : String
+    getter protocol : Int32
+
+    @resource_format : Tuple(Int64, Int64)
 
     def initialize(@jar : Archive, @overlay : Archive? = nil)
       @archives = overlay ? [overlay, jar] : [jar]
       version = jar.object("version.json") || {} of String => JSON::Any
-      unless version["id"]?.try(&.as_s?) == VERSION && version["protocol_version"]?.try(&.as_i64?) == PROTOCOL
-        raise Error.new("expected a Minecraft Java #{VERSION} client JAR (protocol #{PROTOCOL})")
+      release = version["id"]?.try(&.as_s?).try { |id| RELEASES[id]? }
+      unless release && version["protocol_version"]?.try(&.as_i64?) == VERSIONS[release][0]
+        raise Error.new("expected a Minecraft Java 26.1, 26.1.1, 26.1.2 (775) or 26.3 (777) client JAR")
       end
+      @version = release
+      @protocol, @resource_format = VERSIONS[release]
       unless jar.entries.has_key?(ASSETS + "blockstates/stone.json")
         raise Error.new("client JAR has no Minecraft blockstate assets; use the launcher client JAR, not a server JAR")
       end
@@ -550,8 +556,8 @@ module PackBuilder
         end
       end
       raise Error.new("inverted resource pack format range in pack.mcmeta") if lower > upper
-      unless lower <= RESOURCE_FORMAT && RESOURCE_FORMAT <= upper
-        STDERR.puts "Warning: resource pack does not declare 26.3 format 97.1; using compatible assets only."
+      unless lower <= @resource_format && @resource_format <= upper
+        STDERR.puts "Warning: resource pack does not declare #{@version} format #{@resource_format.join('.')}; using compatible assets only."
       end
     end
 

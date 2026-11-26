@@ -21,6 +21,13 @@ jobs:
       - run: crystal tool format --check src spec examples
       - run: crystal spec
       - run: crystal build examples/minimal_bot.cr -o "$RUNNER_TEMP/minimal_bot"
+      - name: Type-check single-version consumers
+        run: |
+          for version in 26.1 26.3; do
+            consumer="$RUNNER_TEMP/consumer_${version/./_}.cr"
+            printf 'require "rosegold/%s"\nrequire "rosegold-viewer"\nRosegoldViewer.mount(Rosegold::Bot.new(Rosegold::Client.new("localhost"))).enable\n' "$version" > "$consumer"
+            CRYSTAL_PATH="$(crystal env CRYSTAL_PATH):src" crystal build --no-codegen "$consumer"
+          done
 
   pack:
     runs-on: ubuntu-latest

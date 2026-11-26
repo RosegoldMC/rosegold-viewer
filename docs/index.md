@@ -40,4 +40,4 @@ The clip shows a script walking to a placement surface, placing a cyan wool bloc
 2. Open the URL printed by the bot and enter the separate pairing secret. To connect from a phone, [set up private HTTPS](private-access.html) first.
 3. Watch the script run. If the script allows it, you can [take control and hand it back](controls.html) from a keyboard or touchscreen.
 
-This is very early software for Minecraft Java 26.3, and it will keep taking shape over the coming months. [How the viewer works](architecture.html) covers what the browser renders today and where texture support is headed.
+This is very early software for Minecraft Java 26.1 and 26.3, and it will keep taking shape over the coming months. [How the viewer works](architecture.html) covers what the browser renders today and where texture support is headed.

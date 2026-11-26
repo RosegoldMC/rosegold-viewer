@@ -15,7 +15,7 @@ function load(name) {
 const { decodeBatch } = load("./wire.js");
 
 function frame(entities, status = "ready") {
-  const header = new TextEncoder().encode(JSON.stringify({ epoch: 1, seq: 1, status, yaw: 0, entities }));
+  const header = new TextEncoder().encode(JSON.stringify({ epoch: 1, seq: 1, status, protocol: 777, yaw: 0, entities }));
   const bytes = new Uint8Array(header.length + 2);
   new DataView(bytes.buffer).setUint16(0, header.length, true);
   bytes.set(header, 2);

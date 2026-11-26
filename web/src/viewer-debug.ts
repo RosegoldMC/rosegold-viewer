@@ -17,6 +17,7 @@ const fpsWindow = 1000;
 export class ViewerDebug {
   private open = false;
   private epoch: number | null = null;
+  private protocol: DebugView["protocol"] = null;
   private info: DebugInfo | null = null;
   private feed = "detached";
   private handle: number | null = null;
@@ -54,7 +55,7 @@ export class ViewerDebug {
 
   setStatus(status: string): void {
     this.feed = status;
-    if (status !== "ready") this.clearData();
+    if (status !== "ready" && status !== "pack_mismatch") this.clearData();
     this.render(true);
   }
 
@@ -66,14 +67,17 @@ export class ViewerDebug {
   apply(batch: TerrainBatch): void {
     if (batch.status !== "ready" || batch.epoch !== this.epoch) {
       this.clearData();
+      if (batch.status === "pack_mismatch") this.protocol = batch.protocol;
       if (batch.status !== "ready") return;
       this.epoch = batch.epoch;
     }
+    this.protocol = batch.protocol;
     if (batch.debug) this.info = batch.debug;
   }
 
   private clearData(): void {
     this.epoch = null;
+    this.protocol = null;
     this.info = null;
   }
 
@@ -129,6 +133,7 @@ export class ViewerDebug {
     }
     const lines = formatDebug({
       feed: this.feed,
+      protocol: this.protocol,
       control: this.environment.control(),
       info: this.info,
       fps: this.fps,

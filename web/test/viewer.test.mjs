@@ -18,8 +18,9 @@ const { decodeBatch, decodeLease, readBytes } = requireModule("./wire.js");
 const { ViewerFeed } = requireModule("./feed.js");
 const { ViewerTerrain } = requireModule("./viewer-terrain.js");
 const { ViewerHud, heldLabel, itemLabel } = requireModule("./viewer-hud.js");
+const { packMismatchLabel } = requireModule("./protocol.js");
 const encode = value => new TextEncoder().encode(JSON.stringify(value));
-const header = { epoch: 7, seq: 5, status: "ready", yaw: 0 };
+const header = { epoch: 7, seq: 5, status: "ready", protocol: 777, yaw: 0 };
 const origin = [0, 0, 0];
 const states = new Uint16Array(4096);
 states[1] = 65534;
@@ -33,6 +34,19 @@ function batchBytes(data, states = []) {
   states.forEach((id, i) => view.setUint16(2 + json.length + i * 2, id, true));
   return bytes;
 }
+
+test("decodes both live protocols and a pack mismatch without terrain", () => {
+  assert.equal(decodeBatch(batchBytes({ ...header, protocol: 775 })).protocol, 775);
+  assert.equal(decodeBatch(batchBytes({ ...header, protocol: 777 })).protocol, 777);
+  const mismatch = { epoch: 1, seq: 1, status: "pack_mismatch", protocol: 775, packProtocol: 777 };
+  assert.deepEqual(decodeBatch(batchBytes(mismatch)), mismatch);
+  assert.equal(decodeBatch(batchBytes({ ...mismatch, packProtocol: 776 })).packProtocol, 776);
+  for (const bad of [{ protocol: undefined }, { protocol: 776 }, { packProtocol: undefined }, { packProtocol: "777" }, { control: null }]) {
+    assert.throws(() => decodeBatch(batchBytes({ ...mismatch, ...bad })), JSON.stringify(bad));
+  }
+  assert.equal(packMismatchLabel(775, 777), "Texture pack is for 26.3, bot is on 26.1. Build a pack from the 26.1 client JAR.");
+  assert.equal(packMismatchLabel(777, 776), "Texture pack is for protocol 776, bot is on 26.3. Build a pack from the 26.3 client JAR.");
+});
 
 test("decodes unsigned little-endian states and signed section positions", () => {
   const position = [-25, -3, 19];

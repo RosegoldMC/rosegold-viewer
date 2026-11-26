@@ -1,6 +1,6 @@
 require "spec"
 require "http/client"
-require "rosegold/26.3"
+require "rosegold"
 require "../src/rosegold-viewer"
 
 private class GatedSink < IO

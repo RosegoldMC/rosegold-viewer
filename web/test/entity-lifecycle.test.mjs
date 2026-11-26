@@ -18,7 +18,7 @@ const { EntityLayer } = requireModule("./entity-layer.js");
 const { toLayerEntities } = requireModule("./entity-glue.js");
 
 const row = (id, x = 0) => ({ id, position: [x, 0, 0], species: "cow", yaw: 0, pitch: 0, pose: 0 });
-const ready = (extra = {}) => ({ epoch: 1, seq: 1, status: "ready", yaw: 0, air: [0], center: [0, 0, 0], eye: [0, 1, 0], look: [0, 0, 1], ...extra });
+const ready = (extra = {}) => ({ epoch: 1, seq: 1, status: "ready", protocol: 777, yaw: 0, air: [0], center: [0, 0, 0], eye: [0, 1, 0], look: [0, 0, 1], ...extra });
 
 function setup() {
   const layer = new EntityLayer({ clock: () => 0 });

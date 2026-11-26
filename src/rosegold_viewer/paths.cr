@@ -1,4 +1,5 @@
 require "json"
+require "./protocol"
 
 module RosegoldViewer
   private class Paths
@@ -19,9 +20,6 @@ module RosegoldViewer
     @scope : Scope?
     @world_generation = 0_u64
     @hook_id = UUID.random
-
-    def initialize(@protocol : UInt32)
-    end
 
     def bind(@bot : Rosegold::Bot) : Nil
       clear
@@ -88,7 +86,7 @@ module RosegoldViewer
     private def ready_connection(bot : Rosegold::Bot) : Rosegold::Connection::Client?
       client = bot.client
       connection = client.connection?
-      connection if connection && connection.protocol_version == @protocol && client.current_protocol_state == Rosegold::ProtocolState::PLAY && bot.spawned?
+      connection if connection && RosegoldViewer.supports_protocol?(connection.protocol_version) && client.current_protocol_state == Rosegold::ProtocolState::PLAY && bot.spawned?
     end
 
     private def valid_name?(name : String) : Bool

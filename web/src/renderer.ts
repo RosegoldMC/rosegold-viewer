@@ -3,7 +3,7 @@ import type { EntityLayer } from "./entity-layer.js";
 import type { Atlas } from "./atlas.js";
 import { BREAK_STAGES, TILE_SIZE } from "./atlas.js";
 import { FIRST_LIQUID_MATERIAL, FLOW_TOP_MATERIAL_OFFSET, LIQUID_SPRITES, liquidFrameAt } from "./liquid.js";
-import { CUBE_VERTICES, describeMissingTexture, SECTION_SIZE, Terrain, VERTEX_POSITION_SCALE, VERTEX_STRIDE, VERTEX_UV_SCALE, fillCube, sectionKey, type SectionPosition } from "./terrain.js";
+import { CUBE_VERTICES, describeMissingTexture, SECTION_SIZE, Terrain, VERTEX_POSITION_SCALE, SHADE_OFFSET, VERTEX_STRIDE, VERTEX_UV_SCALE, fillCube, sectionKey, type SectionPosition } from "./terrain.js";
 
 export type { SectionPosition, Vec3 };
 export type RendererStatus = "ready" | "unavailable" | "lost";
@@ -56,11 +56,13 @@ layout(location = 1) in vec3 a_color;
 layout(location = 2) in vec2 a_corner;
 layout(location = 3) in vec2 a_tile;
 layout(location = 4) in float a_material;
+layout(location = 5) in float a_darkness;
 uniform mat4 u_camera;
 uniform vec3 u_offset;
 uniform float u_positionScale;
 uniform float u_uvScale;
 out vec3 v_color;
+out float v_shade;
 out vec2 v_local;
 flat out vec2 v_tile;
 flat out float v_material;
@@ -68,6 +70,7 @@ void main() {
   gl_Position = u_camera * vec4(a_position / u_positionScale + u_offset, 1.0);
   gl_PointSize = 7.0;
   v_color = a_color;
+  v_shade = 1.0 - a_darkness;
   v_local = a_corner / u_uvScale * ${TILE_SIZE}.0;
   v_tile = a_tile;
   v_material = a_material;
@@ -76,6 +79,7 @@ void main() {
 const fragmentSource = `#version 300 es
 precision mediump float;
 in vec3 v_color;
+in float v_shade;
 in vec2 v_local;
 flat in vec2 v_tile;
 flat in float v_material;
@@ -111,18 +115,18 @@ void main() {
     vec4 sampled = texture(u_atlas, texel / u_atlasSize);
     if (u_water) {
       if (sampled.a < 0.004) discard;
-      color = vec4(sampled.rgb * vec3(0.247, 0.463, 0.894), sampled.a);
+      color = vec4(sampled.rgb * vec3(0.247, 0.463, 0.894) * v_shade, sampled.a);
       return;
     }
     if (sampled.a < 0.5) {
       if (v_material == 1.0) discard;
-      color = vec4(v_color, 1.0);
+      color = vec4(v_color * v_shade, 1.0);
       return;
     }
-    color = vec4(sampled.rgb, 1.0);
+    color = vec4(sampled.rgb * v_shade, 1.0);
     return;
   }
-  color = vec4(v_color, 1.0);
+  color = vec4(v_color * v_shade, 1.0);
 }`;
 
 function compile(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader | null {
@@ -526,6 +530,7 @@ export class TerrainRenderer {
       gl.vertexAttribPointer(2, 2, gl.UNSIGNED_BYTE, false, VERTEX_STRIDE, 9);
       gl.vertexAttribPointer(3, 2, gl.UNSIGNED_BYTE, false, VERTEX_STRIDE, 11);
       gl.vertexAttribPointer(4, 1, gl.UNSIGNED_BYTE, false, VERTEX_STRIDE, 13);
+      gl.vertexAttribPointer(5, 1, gl.UNSIGNED_BYTE, true, VERTEX_STRIDE, SHADE_OFFSET);
       gl.drawArrays(gl.TRIANGLES, 0, count);
     }
   }
@@ -541,7 +546,9 @@ export class TerrainRenderer {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false);
     gl.enableVertexAttribArray(4);
+    gl.enableVertexAttribArray(5);
     this.drawSections(gl, pipeline, eye, sorted);
+    gl.disableVertexAttribArray(5);
     gl.disableVertexAttribArray(4);
     gl.depthMask(true);
     gl.disable(gl.BLEND);
@@ -653,7 +660,9 @@ export class TerrainRenderer {
     gl.enableVertexAttribArray(2);
     gl.enableVertexAttribArray(3);
     gl.enableVertexAttribArray(4);
+    gl.enableVertexAttribArray(5);
     this.drawSections(gl, pipeline, pose.eye, this.meshes.values());
+    gl.disableVertexAttribArray(5);
     gl.disableVertexAttribArray(4);
     const drawn = useTexture && this.drawBreaking(gl, pipeline, pose.eye);
     if (this.pipeline) this.setBreakingDrawn(drawn);

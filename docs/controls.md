@@ -15,6 +15,7 @@ Choose **Intervene** to take control. The script parks at its next `wait_tick` o
 | Jump | Space | Jump |
 | Sprint | Left Ctrl, R, or Q | Sprint |
 | Sneak | Shift | Sneak |
+| Hotbar | Number keys 1-9, or the mouse wheel while the pointer is captured | Tap a hotbar slot |
 | Attack | U | Attack |
 | Use | I | Use |
 
@@ -23,3 +24,5 @@ The touch controls appear during manual play. Use the **Inventory** and **Chat**
 **Resume play** keeps the operator in control. **Resume script** hands the same bot connection back to the parked script. **Restart script from top**, when available for a `Bot.run` script, starts another run on a fresh connection. Choose resume if you want the script to continue where it stopped.
 
 In inventory, a pending click has not finished dispatching. When that indicator clears, it does not mean the server confirmed the click: Minecraft can accept a prediction without sending a reply. Check the cursor and inventory before handing back. If control is lost with an unresolved inventory action, the parked script can receive `Rosegold::ManualControl::Cancelled`. Check `unresolved_inventory?` and reconcile the inventory rather than repeating the click blindly.
+
+The mouse wheel selects the previous or next hotbar slot and wraps around, as in Minecraft. It acts only in play with the pointer captured, and not with Ctrl held or in inventory, chat, or menus.

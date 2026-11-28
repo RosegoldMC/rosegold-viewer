@@ -6,10 +6,28 @@ export type SectionPosition = readonly [x: number, y: number, z: number];
 
 export const SECTION_SIZE = 16;
 export const SECTION_VOLUME = SECTION_SIZE ** 3;
-export const VERTEX_STRIDE = 14;
+export const VERTEX_STRIDE = 16;
 export const VERTEX_POSITION_SCALE = 32;
 export const VERTEX_UV_SCALE = 32;
 export const NO_TILE_BYTE = 255;
+export const SHADE_OFFSET = 14;
+
+// Brightness per face index (+x, -x, +y, -y, +z, -z), the vanilla directional values.
+export const FACE_SHADE = [0.6, 0.6, 1, 0.5, 0.8, 0.8] as const;
+
+// Stored as darkness so a disabled vertex attribute (default 0) means unshaded.
+export function shadeDarkness(brightness: number): number {
+  return Math.round((1 - brightness) * 255);
+}
+
+export function quadFace(corners: readonly number[]): number | undefined {
+  const ux = corners[3] - corners[0], uy = corners[4] - corners[1], uz = corners[5] - corners[2];
+  const vx = corners[6] - corners[0], vy = corners[7] - corners[1], vz = corners[8] - corners[2];
+  const n = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+  const axis = Math.abs(n[0]) >= Math.abs(n[1]) && Math.abs(n[0]) >= Math.abs(n[2]) ? 0 : Math.abs(n[1]) >= Math.abs(n[2]) ? 1 : 2;
+  if (Math.abs(n[axis]) < 1e-9) return undefined;
+  return axis * 2 + (n[axis] > 0 ? 0 : 1);
+}
 
 const SECTION_MASK = SECTION_SIZE - 1;
 const faces = [
@@ -323,6 +341,7 @@ export class Terrain {
     const emit = (
       x: number, y: number, z: number, corners: readonly number[], uv: readonly number[] | undefined,
       order: readonly number[], color: readonly [number, number, number], tile: number, material: number, face: number,
+      shadeFace: number | null,
     ) => {
       if (length + order.length * VERTEX_STRIDE > bytes.length) {
         const larger = new Uint8Array(bytes.length * 2);
@@ -333,6 +352,7 @@ export class Terrain {
       if (tile < 0) this.noteMissing(current, face);
       const tileX = tile < 0 ? NO_TILE_BYTE : tile % columns;
       const tileY = tile < 0 ? NO_TILE_BYTE : Math.floor(tile / columns);
+      const darkness = shadeFace === null ? 0 : shadeDarkness(FACE_SHADE[shadeFace]);
       for (const index of order) {
         const cx = corners[index * 3], cy = corners[index * 3 + 1], cz = corners[index * 3 + 2];
         view.setInt16(length, Math.round((x + cx) * VERTEX_POSITION_SCALE), true);
@@ -347,6 +367,8 @@ export class Terrain {
         bytes[length + 11] = tileX;
         bytes[length + 12] = tileY;
         bytes[length + 13] = material;
+        bytes[length + 14] = darkness;
+        bytes[length + 15] = 0;
         length += VERTEX_STRIDE;
       }
     };
@@ -385,7 +407,7 @@ export class Terrain {
                 return heights[cx === 0 ? cz : 3 - cz];
               });
               const tile = tiles?.[rotated ? 0 : f] ?? -1;
-              emit(x, y, z, corners, rotated ? flowUv : undefined, quadOrder, color, tile, liquidMaterial(model, flowing, rotated), f);
+              emit(x, y, z, corners, rotated ? flowUv : undefined, quadOrder, color, tile, liquidMaterial(model, flowing, rotated), f, f);
             }
             continue;
           }
@@ -393,7 +415,7 @@ export class Terrain {
           if (model === "cross") {
             const color = stateColor(state);
             for (const corners of cross) {
-              emit(x, y, z, corners, crossUv, doubleSidedOrder, color, tiles?.[0] ?? -1, material, 0);
+              emit(x, y, z, corners, crossUv, doubleSidedOrder, color, tiles?.[0] ?? -1, material, 0, null);
             }
             continue;
           }
@@ -403,7 +425,7 @@ export class Terrain {
             for (const quad of mesh?.quads ?? this.quadsFor(model, variant)) {
               if (quad.boundary !== undefined && this.hides(model, adjacentAt(x, y, z, quad.boundary))) continue;
               emit(x, y, z, quad.corners, quad.uv, quad.doubleSided ? doubleSidedOrder : quadOrder, color,
-                tiles?.[quad.face] ?? -1, material, quad.face);
+                tiles?.[quad.face] ?? -1, material, quad.face, quad.doubleSided ? null : quadFace(quad.corners) ?? null);
             }
             continue;
           }
@@ -412,7 +434,7 @@ export class Terrain {
           for (let f = 0; f < faces.length; f++) {
             if (this.hides(model, adjacentAt(x, y, z, f))) continue;
             color ??= stateColor(state);
-            emit(x, y, z, faces[f].corners, undefined, cubeOrder, color, tiles?.[f] ?? -1, material, f);
+            emit(x, y, z, faces[f].corners, undefined, cubeOrder, color, tiles?.[f] ?? -1, material, f, f);
           }
         }
       }

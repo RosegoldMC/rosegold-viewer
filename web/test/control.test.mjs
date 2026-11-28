@@ -14,7 +14,7 @@ function requireModule(name) {
   return modules.get(name);
 }
 
-const { InputState, KEY } = requireModule("./input.js");
+const { InputState, HotbarWheel, wheelHotbar, KEY } = requireModule("./input.js");
 const { ControlMachine } = requireModule("./control.js");
 const { buildClick, canHandBack, layout } = requireModule("./inventory.js");
 const { ViewerControl } = requireModule("./viewer-control.js");
@@ -920,4 +920,168 @@ test("Backspace pressed before the host acknowledges play is kept for the first 
   assert.equal(live[2], 1);
   assert.equal(live[6] & 8, 8);
   assert.equal(vc.outbound().i[6] & 8, 0);
+});
+
+test("hotbar wheel steps, wraps, and accumulates small pixel deltas", () => {
+  const w = new HotbarWheel();
+  assert.equal(w.select(100, 0, 2, 0), 3);
+  assert.equal(w.select(-100, 0, 3, 500), 2);
+  w.reset();
+  assert.equal(w.select(-100, 0, 0, 1000), 8);
+  assert.equal(w.select(100, 0, 8, 1500), 0);
+  assert.equal(w.select(40, 0, 0, 2000), null);
+  assert.equal(w.select(40, 0, 0, 2050), null);
+  assert.equal(w.select(40, 0, 0, 2100), 1);
+  assert.equal(w.select(40, 0, 1, 3000), null);
+  assert.equal(w.select(-40, 0, 1, 3010), null);
+  assert.equal(w.select(Infinity, 0, 3, 4000), null);
+  assert.equal(w.select(100, 0, -1, 4010), null);
+  assert.equal(w.select(900, 0, 3, 4020), 4);
+});
+
+test("hotbar wheel notches accumulate across gaps and stale leftovers expire", () => {
+  const w = new HotbarWheel();
+  assert.equal(w.select(50, 0, 0, 0), null);
+  assert.equal(w.select(50, 0, 0, 300), 1);
+  assert.equal(w.select(50, 0, 1, 600), null);
+  assert.equal(w.select(50, 0, 1, 5000), null);
+  assert.equal(w.select(50, 0, 1, 5300), 2);
+  let selected = 0;
+  const lines = new HotbarWheel();
+  for (let i = 0; i < 7; i++) {
+    const to = lines.select(3, 1, selected, i * 10);
+    assert.equal(to, (selected + 1) % 9);
+    selected = to;
+  }
+  const notch = new HotbarWheel();
+  selected = 0;
+  for (let i = 0; i < 6; i++) selected = notch.select(120, 0, selected, i * 400);
+  assert.equal(selected, 6);
+});
+
+test("hotbar wheel trusts the HUD once it changes, bridging only an unechoed request", () => {
+  const w = new HotbarWheel();
+  assert.equal(w.select(100, 0, 0, 0), 1);
+  assert.equal(w.select(100, 0, 0, 10), 2);
+  assert.equal(w.select(100, 0, 1, 20), 2);
+  assert.equal(w.select(100, 0, 2, 30), 3);
+  w.reset();
+  w.note(0, 7, 0);
+  assert.equal(w.select(100, 0, 0, 10), 8);
+  w.reset();
+  assert.equal(w.select(100, 0, 0, 0), 1);
+  assert.equal(w.select(100, 0, 0, 2000), 1);
+  assert.equal(w.select(100, 0, 6, 2010), 7);
+});
+
+function wheelRig() {
+  const rig = playRig();
+  const wheel = new HotbarWheel();
+  const sent = [];
+  const fire = (deltaY, over = {}) => {
+    let prevented = false;
+    wheelHotbar({ ctrlKey: false, deltaY, deltaMode: 0, preventDefault() { prevented = true; }, ...over }, {
+      captured: rig.vc.mode === "play", ready: rig.vc.playReady, selected: rig.selected, now: 0, wheel,
+      choose: slot => { sent.push(slot); rig.vc.touchSlot(slot); },
+    });
+    return prevented;
+  };
+  return { ...rig, wheel, sent, fire };
+}
+
+function playRig() {
+  const { vc, feed, tick } = viewerControl();
+  feed(ctl({ ack: 0 }));
+  vc.playWithoutCapture();
+  return { vc, feed, tick, selected: 0 };
+}
+
+test("wheel during the play handshake is ignored and never queues a lost slot", () => {
+  const r = wheelRig();
+  assert.equal(r.vc.mode, "play");
+  assert.equal(r.vc.playReady, false);
+  assert.equal(r.fire(100), true);
+  assert.deepEqual(r.sent, []);
+  assert.equal(r.vc.outbound().i[2], 6);
+  r.feed(ctl({ ack: 1 }));
+  const first = r.vc.outbound().i;
+  assert.equal(first.at(-1), -1);
+  assert.equal(r.fire(100), true);
+  assert.deepEqual(r.sent, []);
+  r.feed(ctl({ ack: first[1], mode: "play" }));
+  assert.equal(r.vc.playReady, true);
+  assert.equal(r.fire(100), true);
+  assert.deepEqual(r.sent, [1]);
+  assert.equal(r.vc.outbound().i.at(-1), 1);
+});
+
+test("wheel always blocks browser zoom while captured but never selects with Ctrl or chat", () => {
+  const r = wheelRig();
+  r.vc.outbound();
+  r.feed(ctl({ ack: 1 }));
+  const first = r.vc.outbound().i;
+  r.feed(ctl({ ack: first[1], mode: "play" }));
+  assert.equal(r.fire(100, { ctrlKey: true }), true);
+  assert.deepEqual(r.sent, []);
+  r.vc.openChat();
+  assert.equal(r.vc.playReady, false);
+  assert.equal(r.fire(100), true);
+  assert.deepEqual(r.sent, []);
+  r.vc.closeChat();
+  r.vc.reset();
+  assert.equal(r.fire(100), false);
+});
+
+test("closing chat requires a fresh neutral play frame before the wheel counts", () => {
+  const r = wheelRig();
+  const host = { mode: "available", focused: false, ack: 0, applied: [] };
+  const send = i => {
+    const [, seq, kind, , , , , slot] = i;
+    host.ack = seq;
+    if (kind === 6) host.mode = "available";
+    else if (kind === 1) {
+      const neutral = i.slice(3, 7).every(v => v === 0) && slot === -1;
+      if (host.focused && !neutral) return;
+      if (host.mode !== "play" && !neutral) return;
+      host.focused = false;
+      host.mode = "play";
+      if (slot >= 0) host.applied.push(slot);
+    } else if (kind === 9) host.focused = true;
+    r.feed(ctl({ ack: host.ack, mode: host.mode === "play" ? "play" : "available" }));
+  };
+  for (let n = 0; n < 3; n++) send(r.vc.outbound().i);
+  assert.equal(r.vc.playReady, true);
+  assert.equal(r.vc.openChat(), true);
+  send(r.vc.outbound().i);
+  assert.equal(host.focused, true);
+  r.vc.closeChat();
+  assert.equal(r.vc.playReady, false);
+  assert.equal(r.fire(100), true);
+  assert.deepEqual(r.sent, []);
+  const neutral = r.vc.outbound().i;
+  assert.deepEqual(neutral.slice(2), [1, 0, 0, 0, 0, -1]);
+  send(neutral);
+  assert.equal(host.focused, false);
+  assert.equal(r.vc.playReady, true);
+  r.fire(100);
+  assert.deepEqual(r.sent, [1]);
+  send(r.vc.outbound().i);
+  assert.deepEqual(host.applied, [1]);
+});
+
+test("chat opened and closed before any focus frame keeps the play handshake", () => {
+  const r = wheelRig();
+  r.vc.outbound();
+  r.feed(ctl({ ack: 1 }));
+  const first = r.vc.outbound().i;
+  r.feed(ctl({ ack: first[1], mode: "play" }));
+  assert.equal(r.vc.openChat(), true);
+  r.vc.closeChat();
+  assert.equal(r.vc.playReady, true);
+  r.fire(100);
+  assert.deepEqual(r.sent, [1]);
+  const frame = r.vc.outbound().i;
+  assert.equal(frame[1], first[1] + 1);
+  assert.equal(frame[2], 1);
+  assert.equal(frame.at(-1), 1);
 });

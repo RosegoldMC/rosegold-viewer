@@ -31,6 +31,84 @@ function clamp(value: number, limit: number): number {
   return Math.max(-limit, Math.min(limit, value));
 }
 
+const WHEEL_PIXELS_PER_STEP = 100;
+const WHEEL_IDLE_MS = 1500;
+const WHEEL_PENDING_MS = 1000;
+const HOTBAR_SLOTS = 9;
+
+function validSlot(slot: number): boolean {
+  return Number.isInteger(slot) && slot >= 0 && slot < HOTBAR_SLOTS;
+}
+
+export class HotbarWheel {
+  private remainder = 0;
+  private lastAt = -Infinity;
+  private pending: { from: number; to: number; at: number } | null = null;
+
+  reset(): void {
+    this.remainder = 0;
+    this.lastAt = -Infinity;
+    this.pending = null;
+  }
+
+  private base(selected: number, now: number): number {
+    const pending = this.pending;
+    if (pending && selected === pending.from && now - pending.at < WHEEL_PENDING_MS) return pending.to;
+    this.pending = null;
+    return selected;
+  }
+
+  note(selected: number, slot: number, now: number): void {
+    if (!validSlot(selected) || !validSlot(slot)) return;
+    this.pending = { from: selected, to: slot, at: now };
+  }
+
+  select(deltaY: number, deltaMode: number, selected: number, now: number): number | null {
+    if (!Number.isFinite(deltaY) || deltaY === 0 || !validSlot(selected)) return null;
+    let steps: number;
+    if (deltaMode !== 0 || Math.abs(deltaY) >= WHEEL_PIXELS_PER_STEP) {
+      this.remainder = 0;
+      steps = Math.sign(deltaY);
+    } else {
+      if (now - this.lastAt > WHEEL_IDLE_MS || this.remainder * deltaY < 0) this.remainder = 0;
+      this.remainder += deltaY;
+      steps = Math.trunc(this.remainder / WHEEL_PIXELS_PER_STEP);
+      this.remainder -= steps * WHEEL_PIXELS_PER_STEP;
+    }
+    this.lastAt = now;
+    if (steps === 0) return null;
+    const base = this.base(selected, now);
+    const to = (((base + steps) % HOTBAR_SLOTS) + HOTBAR_SLOTS) % HOTBAR_SLOTS;
+    if (to === base) return null;
+    this.pending = { from: selected, to, at: now };
+    return to;
+  }
+}
+
+export interface WheelEvent {
+  ctrlKey: boolean;
+  deltaY: number;
+  deltaMode: number;
+  preventDefault(): void;
+}
+
+export interface WheelEnv {
+  captured: boolean;
+  ready: boolean;
+  selected: number | null;
+  now: number;
+  wheel: HotbarWheel;
+  choose(slot: number): void;
+}
+
+export function wheelHotbar(event: WheelEvent, env: WheelEnv): void {
+  if (!env.captured) return;
+  event.preventDefault();
+  if (event.ctrlKey || !env.ready || env.selected === null) return;
+  const slot = env.wheel.select(event.deltaY, event.deltaMode, env.selected, env.now);
+  if (slot !== null) env.choose(slot);
+}
+
 export class InputState {
   private down = new Set<string>();
   private buttons = new Set<number>();

@@ -61,6 +61,7 @@ export class ViewerControl {
   private pendingPause = false;
   private pauseSeq = 0;
   private chatting = false;
+  private chatFocusSent = false;
   private chatLocked = false;
   private chatId = Math.floor(Date.now() / 1000);
   private chatSending = false;
@@ -74,6 +75,7 @@ export class ViewerControl {
       exitLock: () => sink.unlock(),
       changed: (mode, previous) => {
         this.chatting = false;
+        this.chatFocusSent = false;
         this.input.setUi(this.machine.ui, this.now());
         this.settle = Infinity;
         this.playSeq = 0;
@@ -131,6 +133,7 @@ export class ViewerControl {
     this.pendingPause = false;
     this.pauseSeq = 0;
     this.chatting = false;
+    this.chatFocusSent = false;
     this.machine.setGrant(null);
     this.sink.inventory(null);
     this.sink.marker(null);
@@ -198,7 +201,10 @@ export class ViewerControl {
       this.notice = "";
       this.render();
     }
-    if (mode === "play" && this.chatting && this.playAcked) return { i: [grant, seq, KIND.chat] };
+    if (mode === "play" && this.chatting && this.playAcked) {
+      this.chatFocusSent = true;
+      return { i: [grant, seq, KIND.chat] };
+    }
     if (mode === "play" && this.pendingPause) {
       this.pauseSeq ||= seq;
       return { i: [grant, seq, KIND.pause] };
@@ -262,6 +268,10 @@ export class ViewerControl {
     this.render();
   }
 
+  get playReady(): boolean {
+    return this.machine.mode === "play" && this.playAcked && !this.chatting;
+  }
+
   get chatOpen(): boolean {
     return this.chatting;
   }
@@ -281,6 +291,11 @@ export class ViewerControl {
   closeChat(): void {
     if (!this.chatting) return;
     this.chatting = false;
+    if (this.chatFocusSent) {
+      this.chatFocusSent = false;
+      this.playSeq = 0;
+      this.playAcked = false;
+    }
     this.chatSeed = this.chatNote = "";
     this.input.setUi(this.machine.ui, this.now());
     if (this.chatLocked) this.machine.resumeLock();

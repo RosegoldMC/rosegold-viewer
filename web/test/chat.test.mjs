@@ -114,8 +114,9 @@ test("T in granted play opens chat: held movement is dropped and frames stay neu
   assert.equal(vc.mode, "play");
 });
 
-test("Esc closes only chat, restores keyboard play at once, and re-requests the pointer", () => {
-  const { vc, log } = playing();
+test("Esc closes only chat, restores keyboard play after a neutral frame, and re-requests the pointer", () => {
+  const ctx = playing();
+  const { vc, log } = ctx;
   vc.keyDown("KeyW", false);
   vc.keyDown("KeyT", false);
   vc.lockChanged(false);
@@ -124,7 +125,9 @@ test("Esc closes only chat, restores keyboard play at once, and re-requests the 
   assert.equal(vc.chatOpen, false);
   assert.equal(vc.mode, "play");
   assert.equal(log.locks, 2);
-  assert.equal(vc.outbound().i[3], 0);
+  const neutral = vc.outbound().i;
+  assert.deepEqual(neutral.slice(2), [1, 0, 0, 0, 0, -1]);
+  ctx.feed(ctl({ ack: neutral[1], mode: "play" }));
   vc.keyDown("KeyW", true);
   assert.equal(vc.outbound().i[3], 0);
   vc.keyDown("KeyW", false);

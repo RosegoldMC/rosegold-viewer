@@ -3,6 +3,7 @@ const modules = {
   "./viewer.js": (require, exports) => {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+const input_js_1 = require("./input.js");
 const atlas_js_1 = require("./atlas.js");
 const feed_js_1 = require("./feed.js");
 const renderer_js_1 = require("./renderer.js");
@@ -149,6 +150,7 @@ const terrain = new viewer_terrain_js_1.ViewerTerrain(air => {
     active = renderer;
     return renderer;
 }, renderer => (0, entity_glue_js_1.createEntitySink)(renderer, entityPack));
+const hotbarWheel = new input_js_1.HotbarWheel();
 const hud = new viewer_hud_js_1.ViewerHud({
     show(state) {
         shownHud = state;
@@ -491,8 +493,11 @@ touchRoot.addEventListener("click", event => {
 });
 hudRoot.querySelector("#hud-slots").addEventListener("click", event => {
     const index = hudSlots.indexOf(event.target.closest("li"));
-    if (touchMode && index >= 0)
+    if (touchMode && index >= 0) {
+        if (control.playReady && shownHud)
+            hotbarWheel.note(shownHud.selected, index, performance.now());
         control.touchSlot(index);
+    }
 });
 function chooseOp() {
     const pressed = touchOps.find(button => button.getAttribute("aria-pressed") === "true");
@@ -572,6 +577,7 @@ restartYes.addEventListener("click", () => {
 });
 for (const button of returnButtons)
     button.addEventListener("click", () => control.returnToScript());
+document.addEventListener("pointerlockchange", () => hotbarWheel.reset());
 document.addEventListener("pointerlockchange", () => control.lockChanged(document.pointerLockElement === canvas));
 document.addEventListener("pointerlockerror", () => control.lockDenied());
 const CTRL_PLAY_KEYS = new Set(["ControlLeft", "KeyW", "KeyA", "KeyS", "KeyD", "Space", "ShiftLeft", "ShiftRight"]);
@@ -601,8 +607,11 @@ document.addEventListener("keydown", event => {
         event.preventDefault();
         return;
     }
+    const wasReady = control.playReady;
     if (control.keyDown(event.code, event.repeat))
         event.preventDefault();
+    if (digit && wasReady && !event.repeat && shownHud)
+        hotbarWheel.note(shownHud.selected, Number(digit[1]) - 1, performance.now());
 });
 document.addEventListener("keyup", event => control.keyUp(event.code));
 canvas.addEventListener("mousedown", event => {
@@ -614,17 +623,27 @@ canvas.addEventListener("mousedown", event => {
     control.mouseDown(event.button);
 });
 document.addEventListener("mouseup", event => control.mouseUp(event.button));
+canvas.addEventListener("wheel", event => (0, input_js_1.wheelHotbar)(event, {
+    captured: control.mode === "play" && document.pointerLockElement === canvas,
+    ready: control.playReady,
+    selected: shownHud?.selected ?? null,
+    now: performance.now(),
+    wheel: hotbarWheel,
+    choose: slot => control.touchSlot(slot),
+}), { passive: false });
 canvas.addEventListener("contextmenu", event => event.preventDefault());
 document.addEventListener("mousemove", event => {
     if (document.pointerLockElement === canvas)
         control.mouseMove(event.movementX, event.movementY);
 });
 window.addEventListener("blur", () => {
+    hotbarWheel.reset();
     control.focusLost();
     cancelTouch();
 });
 function updateVisibility() {
     if (document.visibilityState === "hidden") {
+        hotbarWheel.reset();
         control.focusLost();
         cancelTouch();
     }
@@ -640,6 +659,272 @@ window.addEventListener("pagehide", () => {
 updateVisibility();
 connect.disabled = false;
 pairing.restore();
+  },
+  "./input.js": (require, exports) => {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.InputState = exports.HotbarWheel = exports.MAX_FRAME_PITCH = exports.MAX_FRAME_YAW = exports.TOUCH_DEGREES_PER_PIXEL = exports.MOUSE_DEGREES_PER_PIXEL = exports.KEY = void 0;
+exports.wheelHotbar = wheelHotbar;
+exports.KEY = { forward: 1, back: 2, left: 4, right: 8, sneak: 16, jump: 32, attack: 64, use: 128, sprint: 256 };
+exports.MOUSE_DEGREES_PER_PIXEL = 0.15;
+exports.TOUCH_DEGREES_PER_PIXEL = 0.25;
+exports.MAX_FRAME_YAW = 180;
+exports.MAX_FRAME_PITCH = 45;
+const MAX_EVENT_PIXELS = 400;
+const YAW_RATE = 193;
+const PITCH_RATE = 151;
+const PRECISE_RATE = 40;
+const movement = {
+    KeyW: exports.KEY.forward, KeyS: exports.KEY.back, KeyA: exports.KEY.left, KeyD: exports.KEY.right, Space: exports.KEY.jump,
+    ShiftLeft: exports.KEY.sneak, ShiftRight: exports.KEY.sneak, ControlLeft: exports.KEY.sprint, KeyR: exports.KEY.sprint, KeyQ: exports.KEY.sprint, KeyU: exports.KEY.attack, KeyI: exports.KEY.use,
+};
+const turning = new Set(["KeyH", "KeyL", "KeyJ", "KeyK"]);
+function clamp(value, limit) {
+    return Math.max(-limit, Math.min(limit, value));
+}
+const WHEEL_PIXELS_PER_STEP = 100;
+const WHEEL_IDLE_MS = 1500;
+const WHEEL_PENDING_MS = 1000;
+const HOTBAR_SLOTS = 9;
+function validSlot(slot) {
+    return Number.isInteger(slot) && slot >= 0 && slot < HOTBAR_SLOTS;
+}
+class HotbarWheel {
+    remainder = 0;
+    lastAt = -Infinity;
+    pending = null;
+    reset() {
+        this.remainder = 0;
+        this.lastAt = -Infinity;
+        this.pending = null;
+    }
+    base(selected, now) {
+        const pending = this.pending;
+        if (pending && selected === pending.from && now - pending.at < WHEEL_PENDING_MS)
+            return pending.to;
+        this.pending = null;
+        return selected;
+    }
+    note(selected, slot, now) {
+        if (!validSlot(selected) || !validSlot(slot))
+            return;
+        this.pending = { from: selected, to: slot, at: now };
+    }
+    select(deltaY, deltaMode, selected, now) {
+        if (!Number.isFinite(deltaY) || deltaY === 0 || !validSlot(selected))
+            return null;
+        let steps;
+        if (deltaMode !== 0 || Math.abs(deltaY) >= WHEEL_PIXELS_PER_STEP) {
+            this.remainder = 0;
+            steps = Math.sign(deltaY);
+        }
+        else {
+            if (now - this.lastAt > WHEEL_IDLE_MS || this.remainder * deltaY < 0)
+                this.remainder = 0;
+            this.remainder += deltaY;
+            steps = Math.trunc(this.remainder / WHEEL_PIXELS_PER_STEP);
+            this.remainder -= steps * WHEEL_PIXELS_PER_STEP;
+        }
+        this.lastAt = now;
+        if (steps === 0)
+            return null;
+        const base = this.base(selected, now);
+        const to = (((base + steps) % HOTBAR_SLOTS) + HOTBAR_SLOTS) % HOTBAR_SLOTS;
+        if (to === base)
+            return null;
+        this.pending = { from: selected, to, at: now };
+        return to;
+    }
+}
+exports.HotbarWheel = HotbarWheel;
+function wheelHotbar(event, env) {
+    if (!env.captured)
+        return;
+    event.preventDefault();
+    if (event.ctrlKey || !env.ready || env.selected === null)
+        return;
+    const slot = env.wheel.select(event.deltaY, event.deltaMode, env.selected, env.now);
+    if (slot !== null)
+        env.choose(slot);
+}
+class InputState {
+    down = new Set();
+    buttons = new Set();
+    touch = 0;
+    ui = "play";
+    edges = new Map();
+    dyaw = 0;
+    dpitch = 0;
+    snap = 0;
+    slot = null;
+    iceToggle = false;
+    last = 0;
+    mask() {
+        let mask = 0;
+        for (const code of this.down)
+            mask |= movement[code] ?? 0;
+        if (this.buttons.has(0))
+            mask |= exports.KEY.attack;
+        if (this.buttons.has(2))
+            mask |= exports.KEY.use;
+        mask |= this.touch;
+        if (!(mask & exports.KEY.forward))
+            mask &= ~exports.KEY.sprint;
+        return mask;
+    }
+    advance(now) {
+        const dt = Math.max(0, Math.min(250, now - this.last)) / 1000;
+        this.last = now;
+        if (dt === 0 || this.ui !== "play")
+            return;
+        const shift = this.down.has("ShiftLeft");
+        const precise = this.down.has("KeyC");
+        const yaw = precise ? PRECISE_RATE : YAW_RATE;
+        const pitch = precise ? PRECISE_RATE : PITCH_RATE;
+        if (!shift) {
+            this.dyaw += ((this.down.has("KeyL") ? 1 : 0) - (this.down.has("KeyH") ? 1 : 0)) * yaw * dt;
+        }
+        this.dpitch += ((this.down.has("KeyJ") ? 1 : 0) - (this.down.has("KeyK") ? 1 : 0)) * pitch * dt;
+    }
+    pressing(before, after) {
+        for (const action of [exports.KEY.jump, exports.KEY.attack, exports.KEY.use]) {
+            if (!(before & action) && after & action)
+                this.edges.set(action, (this.edges.get(action) ?? 0) + 1);
+        }
+    }
+    setUi(ui, now) {
+        this.advance(now);
+        if (ui === this.ui)
+            return;
+        this.ui = ui;
+        this.clear(now);
+    }
+    clear(now) {
+        this.advance(now);
+        this.down.clear();
+        this.buttons.clear();
+        this.touch = 0;
+        this.edges.clear();
+        this.dyaw = this.dpitch = 0;
+        this.snap = 0;
+        this.slot = null;
+        this.iceToggle = false;
+    }
+    requeueIce() {
+        if (this.ui === "play")
+            this.iceToggle = true;
+    }
+    keyDown(code, now, repeat = false) {
+        if (this.ui !== "play")
+            return;
+        this.advance(now);
+        if (repeat || this.down.has(code))
+            return;
+        if (code === "Backspace") {
+            this.iceToggle = !this.iceToggle;
+            return;
+        }
+        const before = this.mask();
+        if (turning.has(code) || code === "KeyC") {
+            this.down.add(code);
+            if ((code === "KeyH" || code === "KeyL") && this.down.has("ShiftLeft"))
+                this.snap = code === "KeyH" ? -1 : 1;
+            return;
+        }
+        const digit = /^Digit([1-9])$/.exec(code);
+        if (digit) {
+            this.slot = Number(digit[1]) - 1;
+            return;
+        }
+        if (!(code in movement))
+            return;
+        this.down.add(code);
+        this.pressing(before, this.mask());
+    }
+    keyUp(code, now) {
+        if (this.ui !== "play")
+            return;
+        this.advance(now);
+        this.down.delete(code);
+    }
+    mouseDown(button, now) {
+        if (this.ui !== "play" || (button !== 0 && button !== 2))
+            return;
+        this.advance(now);
+        const before = this.mask();
+        this.buttons.add(button);
+        this.pressing(before, this.mask());
+    }
+    mouseUp(button, now) {
+        if (this.ui !== "play")
+            return;
+        this.advance(now);
+        this.buttons.delete(button);
+    }
+    touchKeys(bits, now) {
+        if (this.ui !== "play")
+            return;
+        this.advance(now);
+        const before = this.mask();
+        this.touch = bits;
+        this.pressing(before, this.mask());
+    }
+    touchAbort(bits) {
+        for (const action of [exports.KEY.jump, exports.KEY.attack, exports.KEY.use])
+            if (bits & action)
+                this.edges.delete(action);
+    }
+    touchLook(dx, dy, now) {
+        if (this.ui !== "play")
+            return;
+        this.advance(now);
+        if (!Number.isFinite(dx) || !Number.isFinite(dy))
+            return;
+        this.dyaw += clamp(dx, MAX_EVENT_PIXELS) * exports.TOUCH_DEGREES_PER_PIXEL;
+        this.dpitch += clamp(dy, MAX_EVENT_PIXELS) * exports.TOUCH_DEGREES_PER_PIXEL;
+    }
+    mouseMove(dx, dy, now) {
+        if (this.ui !== "play")
+            return;
+        this.advance(now);
+        if (!Number.isFinite(dx) || !Number.isFinite(dy))
+            return;
+        this.dyaw += clamp(dx, MAX_EVENT_PIXELS) * exports.MOUSE_DEGREES_PER_PIXEL;
+        this.dpitch += clamp(dy, MAX_EVENT_PIXELS) * exports.MOUSE_DEGREES_PER_PIXEL;
+    }
+    frame(now) {
+        this.advance(now);
+        const play = this.ui === "play";
+        const mask = this.mask();
+        let taps = 0;
+        if (play) {
+            const short = (action) => Math.max(0, (this.edges.get(action) ?? 0) - (mask & action ? 1 : 0)) > 0;
+            if (short(exports.KEY.jump))
+                taps |= 1;
+            if (short(exports.KEY.attack))
+                taps |= 2;
+            if (short(exports.KEY.use))
+                taps |= 4;
+        }
+        const frame = {
+            keys: play ? mask : 0,
+            taps,
+            dyaw: clamp(this.dyaw, exports.MAX_FRAME_YAW),
+            dpitch: clamp(this.dpitch, exports.MAX_FRAME_PITCH),
+            snap: this.snap,
+            slot: this.slot,
+            iceToggle: play && this.iceToggle,
+            ui: this.ui,
+        };
+        this.edges.clear();
+        this.dyaw = this.dpitch = 0;
+        this.snap = 0;
+        this.slot = null;
+        this.iceToggle = false;
+        return frame;
+    }
+}
+exports.InputState = InputState;
   },
   "./atlas.js": (require, exports) => {
 "use strict";
@@ -1230,11 +1515,13 @@ layout(location = 1) in vec3 a_color;
 layout(location = 2) in vec2 a_corner;
 layout(location = 3) in vec2 a_tile;
 layout(location = 4) in float a_material;
+layout(location = 5) in float a_darkness;
 uniform mat4 u_camera;
 uniform vec3 u_offset;
 uniform float u_positionScale;
 uniform float u_uvScale;
 out vec3 v_color;
+out float v_shade;
 out vec2 v_local;
 flat out vec2 v_tile;
 flat out float v_material;
@@ -1242,6 +1529,7 @@ void main() {
   gl_Position = u_camera * vec4(a_position / u_positionScale + u_offset, 1.0);
   gl_PointSize = 7.0;
   v_color = a_color;
+  v_shade = 1.0 - a_darkness;
   v_local = a_corner / u_uvScale * ${atlas_js_1.TILE_SIZE}.0;
   v_tile = a_tile;
   v_material = a_material;
@@ -1249,6 +1537,7 @@ void main() {
 const fragmentSource = `#version 300 es
 precision mediump float;
 in vec3 v_color;
+in float v_shade;
 in vec2 v_local;
 flat in vec2 v_tile;
 flat in float v_material;
@@ -1284,18 +1573,18 @@ void main() {
     vec4 sampled = texture(u_atlas, texel / u_atlasSize);
     if (u_water) {
       if (sampled.a < 0.004) discard;
-      color = vec4(sampled.rgb * vec3(0.247, 0.463, 0.894), sampled.a);
+      color = vec4(sampled.rgb * vec3(0.247, 0.463, 0.894) * v_shade, sampled.a);
       return;
     }
     if (sampled.a < 0.5) {
       if (v_material == 1.0) discard;
-      color = vec4(v_color, 1.0);
+      color = vec4(v_color * v_shade, 1.0);
       return;
     }
-    color = vec4(sampled.rgb, 1.0);
+    color = vec4(sampled.rgb * v_shade, 1.0);
     return;
   }
-  color = vec4(v_color, 1.0);
+  color = vec4(v_color * v_shade, 1.0);
 }`;
 function compile(gl, type, source) {
     const shader = gl.createShader(type);
@@ -1709,6 +1998,7 @@ class TerrainRenderer {
             gl.vertexAttribPointer(2, 2, gl.UNSIGNED_BYTE, false, terrain_js_1.VERTEX_STRIDE, 9);
             gl.vertexAttribPointer(3, 2, gl.UNSIGNED_BYTE, false, terrain_js_1.VERTEX_STRIDE, 11);
             gl.vertexAttribPointer(4, 1, gl.UNSIGNED_BYTE, false, terrain_js_1.VERTEX_STRIDE, 13);
+            gl.vertexAttribPointer(5, 1, gl.UNSIGNED_BYTE, true, terrain_js_1.VERTEX_STRIDE, terrain_js_1.SHADE_OFFSET);
             gl.drawArrays(gl.TRIANGLES, 0, count);
         }
     }
@@ -1722,7 +2012,9 @@ class TerrainRenderer {
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.depthMask(false);
         gl.enableVertexAttribArray(4);
+        gl.enableVertexAttribArray(5);
         this.drawSections(gl, pipeline, eye, sorted);
+        gl.disableVertexAttribArray(5);
         gl.disableVertexAttribArray(4);
         gl.depthMask(true);
         gl.disable(gl.BLEND);
@@ -1838,7 +2130,9 @@ class TerrainRenderer {
         gl.enableVertexAttribArray(2);
         gl.enableVertexAttribArray(3);
         gl.enableVertexAttribArray(4);
+        gl.enableVertexAttribArray(5);
         this.drawSections(gl, pipeline, pose.eye, this.meshes.values());
+        gl.disableVertexAttribArray(5);
         gl.disableVertexAttribArray(4);
         const drawn = useTexture && this.drawBreaking(gl, pipeline, pose.eye);
         if (this.pipeline)
@@ -1903,6 +2197,7 @@ class ViewerControl {
     pendingPause = false;
     pauseSeq = 0;
     chatting = false;
+    chatFocusSent = false;
     chatLocked = false;
     chatId = Math.floor(Date.now() / 1000);
     chatSending = false;
@@ -1917,6 +2212,7 @@ class ViewerControl {
             exitLock: () => sink.unlock(),
             changed: (mode, previous) => {
                 this.chatting = false;
+                this.chatFocusSent = false;
                 this.input.setUi(this.machine.ui, this.now());
                 this.settle = Infinity;
                 this.playSeq = 0;
@@ -1973,6 +2269,7 @@ class ViewerControl {
         this.pendingPause = false;
         this.pauseSeq = 0;
         this.chatting = false;
+        this.chatFocusSent = false;
         this.machine.setGrant(null);
         this.sink.inventory(null);
         this.sink.marker(null);
@@ -2048,8 +2345,10 @@ class ViewerControl {
             this.notice = "";
             this.render();
         }
-        if (mode === "play" && this.chatting && this.playAcked)
+        if (mode === "play" && this.chatting && this.playAcked) {
+            this.chatFocusSent = true;
             return { i: [grant, seq, KIND.chat] };
+        }
         if (mode === "play" && this.pendingPause) {
             this.pauseSeq ||= seq;
             return { i: [grant, seq, KIND.pause] };
@@ -2117,6 +2416,9 @@ class ViewerControl {
         this.notice = "The browser denied mouse capture. Try again.";
         this.render();
     }
+    get playReady() {
+        return this.machine.mode === "play" && this.playAcked && !this.chatting;
+    }
     get chatOpen() {
         return this.chatting;
     }
@@ -2136,6 +2438,11 @@ class ViewerControl {
         if (!this.chatting)
             return;
         this.chatting = false;
+        if (this.chatFocusSent) {
+            this.chatFocusSent = false;
+            this.playSeq = 0;
+            this.playAcked = false;
+        }
         this.chatSeed = this.chatNote = "";
         this.input.setUi(this.machine.ui, this.now());
         if (this.chatLocked)
@@ -3811,7 +4118,9 @@ function cameraMatrix([x, y, z], aspect, yaw) {
   "./terrain.js": (require, exports) => {
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Terrain = exports.CUBE_VERTICES = exports.MAX_MISSING_REPORTS = exports.NO_TILE_BYTE = exports.VERTEX_UV_SCALE = exports.VERTEX_POSITION_SCALE = exports.VERTEX_STRIDE = exports.SECTION_VOLUME = exports.SECTION_SIZE = void 0;
+exports.Terrain = exports.CUBE_VERTICES = exports.MAX_MISSING_REPORTS = exports.FACE_SHADE = exports.SHADE_OFFSET = exports.NO_TILE_BYTE = exports.VERTEX_UV_SCALE = exports.VERTEX_POSITION_SCALE = exports.VERTEX_STRIDE = exports.SECTION_VOLUME = exports.SECTION_SIZE = void 0;
+exports.shadeDarkness = shadeDarkness;
+exports.quadFace = quadFace;
 exports.faceUv = faceUv;
 exports.describeMissingTexture = describeMissingTexture;
 exports.fillCube = fillCube;
@@ -3821,10 +4130,26 @@ const block_models_js_1 = require("./block-models.js");
 const liquid_js_1 = require("./liquid.js");
 exports.SECTION_SIZE = 16;
 exports.SECTION_VOLUME = exports.SECTION_SIZE ** 3;
-exports.VERTEX_STRIDE = 14;
+exports.VERTEX_STRIDE = 16;
 exports.VERTEX_POSITION_SCALE = 32;
 exports.VERTEX_UV_SCALE = 32;
 exports.NO_TILE_BYTE = 255;
+exports.SHADE_OFFSET = 14;
+// Brightness per face index (+x, -x, +y, -y, +z, -z), the vanilla directional values.
+exports.FACE_SHADE = [0.6, 0.6, 1, 0.5, 0.8, 0.8];
+// Stored as darkness so a disabled vertex attribute (default 0) means unshaded.
+function shadeDarkness(brightness) {
+    return Math.round((1 - brightness) * 255);
+}
+function quadFace(corners) {
+    const ux = corners[3] - corners[0], uy = corners[4] - corners[1], uz = corners[5] - corners[2];
+    const vx = corners[6] - corners[0], vy = corners[7] - corners[1], vz = corners[8] - corners[2];
+    const n = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+    const axis = Math.abs(n[0]) >= Math.abs(n[1]) && Math.abs(n[0]) >= Math.abs(n[2]) ? 0 : Math.abs(n[1]) >= Math.abs(n[2]) ? 1 : 2;
+    if (Math.abs(n[axis]) < 1e-9)
+        return undefined;
+    return axis * 2 + (n[axis] > 0 ? 0 : 1);
+}
 const SECTION_MASK = exports.SECTION_SIZE - 1;
 const faces = [
     { step: [1, 0, 0], corners: [1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1] },
@@ -4095,7 +4420,7 @@ class Terrain {
             }
             return liquidNeighbors.get(key)?.[cellIndex(x & SECTION_MASK, y & SECTION_MASK, z & SECTION_MASK)];
         };
-        const emit = (x, y, z, corners, uv, order, color, tile, material, face) => {
+        const emit = (x, y, z, corners, uv, order, color, tile, material, face, shadeFace) => {
             if (length + order.length * exports.VERTEX_STRIDE > bytes.length) {
                 const larger = new Uint8Array(bytes.length * 2);
                 larger.set(bytes);
@@ -4106,6 +4431,7 @@ class Terrain {
                 this.noteMissing(current, face);
             const tileX = tile < 0 ? exports.NO_TILE_BYTE : tile % columns;
             const tileY = tile < 0 ? exports.NO_TILE_BYTE : Math.floor(tile / columns);
+            const darkness = shadeFace === null ? 0 : shadeDarkness(exports.FACE_SHADE[shadeFace]);
             for (const index of order) {
                 const cx = corners[index * 3], cy = corners[index * 3 + 1], cz = corners[index * 3 + 2];
                 view.setInt16(length, Math.round((x + cx) * exports.VERTEX_POSITION_SCALE), true);
@@ -4120,6 +4446,8 @@ class Terrain {
                 bytes[length + 11] = tileX;
                 bytes[length + 12] = tileY;
                 bytes[length + 13] = material;
+                bytes[length + 14] = darkness;
+                bytes[length + 15] = 0;
                 length += exports.VERTEX_STRIDE;
             }
         };
@@ -4163,14 +4491,14 @@ class Terrain {
                                 return heights[cx === 0 ? cz : 3 - cz];
                             });
                             const tile = tiles?.[rotated ? 0 : f] ?? -1;
-                            emit(x, y, z, corners, rotated ? flowUv : undefined, quadOrder, color, tile, (0, liquid_js_1.liquidMaterial)(model, flowing, rotated), f);
+                            emit(x, y, z, corners, rotated ? flowUv : undefined, quadOrder, color, tile, (0, liquid_js_1.liquidMaterial)(model, flowing, rotated), f, f);
                         }
                         continue;
                     }
                     if (model === "cross") {
                         const color = stateColor(state);
                         for (const corners of cross) {
-                            emit(x, y, z, corners, crossUv, doubleSidedOrder, color, tiles?.[0] ?? -1, material, 0);
+                            emit(x, y, z, corners, crossUv, doubleSidedOrder, color, tiles?.[0] ?? -1, material, 0, null);
                         }
                         continue;
                     }
@@ -4179,7 +4507,7 @@ class Terrain {
                         for (const quad of mesh?.quads ?? this.quadsFor(model, variant)) {
                             if (quad.boundary !== undefined && this.hides(model, adjacentAt(x, y, z, quad.boundary)))
                                 continue;
-                            emit(x, y, z, quad.corners, quad.uv, quad.doubleSided ? doubleSidedOrder : quadOrder, color, tiles?.[quad.face] ?? -1, material, quad.face);
+                            emit(x, y, z, quad.corners, quad.uv, quad.doubleSided ? doubleSidedOrder : quadOrder, color, tiles?.[quad.face] ?? -1, material, quad.face, quad.doubleSided ? null : quadFace(quad.corners) ?? null);
                         }
                         continue;
                     }
@@ -4188,7 +4516,7 @@ class Terrain {
                         if (this.hides(model, adjacentAt(x, y, z, f)))
                             continue;
                         color ??= stateColor(state);
-                        emit(x, y, z, faces[f].corners, undefined, cubeOrder, color, tiles?.[f] ?? -1, material, f);
+                        emit(x, y, z, faces[f].corners, undefined, cubeOrder, color, tiles?.[f] ?? -1, material, f, f);
                     }
                 }
             }
@@ -4406,206 +4734,6 @@ class ControlMachine {
     }
 }
 exports.ControlMachine = ControlMachine;
-  },
-  "./input.js": (require, exports) => {
-"use strict";
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.InputState = exports.MAX_FRAME_PITCH = exports.MAX_FRAME_YAW = exports.TOUCH_DEGREES_PER_PIXEL = exports.MOUSE_DEGREES_PER_PIXEL = exports.KEY = void 0;
-exports.KEY = { forward: 1, back: 2, left: 4, right: 8, sneak: 16, jump: 32, attack: 64, use: 128, sprint: 256 };
-exports.MOUSE_DEGREES_PER_PIXEL = 0.15;
-exports.TOUCH_DEGREES_PER_PIXEL = 0.25;
-exports.MAX_FRAME_YAW = 180;
-exports.MAX_FRAME_PITCH = 45;
-const MAX_EVENT_PIXELS = 400;
-const YAW_RATE = 193;
-const PITCH_RATE = 151;
-const PRECISE_RATE = 40;
-const movement = {
-    KeyW: exports.KEY.forward, KeyS: exports.KEY.back, KeyA: exports.KEY.left, KeyD: exports.KEY.right, Space: exports.KEY.jump,
-    ShiftLeft: exports.KEY.sneak, ShiftRight: exports.KEY.sneak, ControlLeft: exports.KEY.sprint, KeyR: exports.KEY.sprint, KeyQ: exports.KEY.sprint, KeyU: exports.KEY.attack, KeyI: exports.KEY.use,
-};
-const turning = new Set(["KeyH", "KeyL", "KeyJ", "KeyK"]);
-function clamp(value, limit) {
-    return Math.max(-limit, Math.min(limit, value));
-}
-class InputState {
-    down = new Set();
-    buttons = new Set();
-    touch = 0;
-    ui = "play";
-    edges = new Map();
-    dyaw = 0;
-    dpitch = 0;
-    snap = 0;
-    slot = null;
-    iceToggle = false;
-    last = 0;
-    mask() {
-        let mask = 0;
-        for (const code of this.down)
-            mask |= movement[code] ?? 0;
-        if (this.buttons.has(0))
-            mask |= exports.KEY.attack;
-        if (this.buttons.has(2))
-            mask |= exports.KEY.use;
-        mask |= this.touch;
-        if (!(mask & exports.KEY.forward))
-            mask &= ~exports.KEY.sprint;
-        return mask;
-    }
-    advance(now) {
-        const dt = Math.max(0, Math.min(250, now - this.last)) / 1000;
-        this.last = now;
-        if (dt === 0 || this.ui !== "play")
-            return;
-        const shift = this.down.has("ShiftLeft");
-        const precise = this.down.has("KeyC");
-        const yaw = precise ? PRECISE_RATE : YAW_RATE;
-        const pitch = precise ? PRECISE_RATE : PITCH_RATE;
-        if (!shift) {
-            this.dyaw += ((this.down.has("KeyL") ? 1 : 0) - (this.down.has("KeyH") ? 1 : 0)) * yaw * dt;
-        }
-        this.dpitch += ((this.down.has("KeyJ") ? 1 : 0) - (this.down.has("KeyK") ? 1 : 0)) * pitch * dt;
-    }
-    pressing(before, after) {
-        for (const action of [exports.KEY.jump, exports.KEY.attack, exports.KEY.use]) {
-            if (!(before & action) && after & action)
-                this.edges.set(action, (this.edges.get(action) ?? 0) + 1);
-        }
-    }
-    setUi(ui, now) {
-        this.advance(now);
-        if (ui === this.ui)
-            return;
-        this.ui = ui;
-        this.clear(now);
-    }
-    clear(now) {
-        this.advance(now);
-        this.down.clear();
-        this.buttons.clear();
-        this.touch = 0;
-        this.edges.clear();
-        this.dyaw = this.dpitch = 0;
-        this.snap = 0;
-        this.slot = null;
-        this.iceToggle = false;
-    }
-    requeueIce() {
-        if (this.ui === "play")
-            this.iceToggle = true;
-    }
-    keyDown(code, now, repeat = false) {
-        if (this.ui !== "play")
-            return;
-        this.advance(now);
-        if (repeat || this.down.has(code))
-            return;
-        if (code === "Backspace") {
-            this.iceToggle = !this.iceToggle;
-            return;
-        }
-        const before = this.mask();
-        if (turning.has(code) || code === "KeyC") {
-            this.down.add(code);
-            if ((code === "KeyH" || code === "KeyL") && this.down.has("ShiftLeft"))
-                this.snap = code === "KeyH" ? -1 : 1;
-            return;
-        }
-        const digit = /^Digit([1-9])$/.exec(code);
-        if (digit) {
-            this.slot = Number(digit[1]) - 1;
-            return;
-        }
-        if (!(code in movement))
-            return;
-        this.down.add(code);
-        this.pressing(before, this.mask());
-    }
-    keyUp(code, now) {
-        if (this.ui !== "play")
-            return;
-        this.advance(now);
-        this.down.delete(code);
-    }
-    mouseDown(button, now) {
-        if (this.ui !== "play" || (button !== 0 && button !== 2))
-            return;
-        this.advance(now);
-        const before = this.mask();
-        this.buttons.add(button);
-        this.pressing(before, this.mask());
-    }
-    mouseUp(button, now) {
-        if (this.ui !== "play")
-            return;
-        this.advance(now);
-        this.buttons.delete(button);
-    }
-    touchKeys(bits, now) {
-        if (this.ui !== "play")
-            return;
-        this.advance(now);
-        const before = this.mask();
-        this.touch = bits;
-        this.pressing(before, this.mask());
-    }
-    touchAbort(bits) {
-        for (const action of [exports.KEY.jump, exports.KEY.attack, exports.KEY.use])
-            if (bits & action)
-                this.edges.delete(action);
-    }
-    touchLook(dx, dy, now) {
-        if (this.ui !== "play")
-            return;
-        this.advance(now);
-        if (!Number.isFinite(dx) || !Number.isFinite(dy))
-            return;
-        this.dyaw += clamp(dx, MAX_EVENT_PIXELS) * exports.TOUCH_DEGREES_PER_PIXEL;
-        this.dpitch += clamp(dy, MAX_EVENT_PIXELS) * exports.TOUCH_DEGREES_PER_PIXEL;
-    }
-    mouseMove(dx, dy, now) {
-        if (this.ui !== "play")
-            return;
-        this.advance(now);
-        if (!Number.isFinite(dx) || !Number.isFinite(dy))
-            return;
-        this.dyaw += clamp(dx, MAX_EVENT_PIXELS) * exports.MOUSE_DEGREES_PER_PIXEL;
-        this.dpitch += clamp(dy, MAX_EVENT_PIXELS) * exports.MOUSE_DEGREES_PER_PIXEL;
-    }
-    frame(now) {
-        this.advance(now);
-        const play = this.ui === "play";
-        const mask = this.mask();
-        let taps = 0;
-        if (play) {
-            const short = (action) => Math.max(0, (this.edges.get(action) ?? 0) - (mask & action ? 1 : 0)) > 0;
-            if (short(exports.KEY.jump))
-                taps |= 1;
-            if (short(exports.KEY.attack))
-                taps |= 2;
-            if (short(exports.KEY.use))
-                taps |= 4;
-        }
-        const frame = {
-            keys: play ? mask : 0,
-            taps,
-            dyaw: clamp(this.dyaw, exports.MAX_FRAME_YAW),
-            dpitch: clamp(this.dpitch, exports.MAX_FRAME_PITCH),
-            snap: this.snap,
-            slot: this.slot,
-            iceToggle: play && this.iceToggle,
-            ui: this.ui,
-        };
-        this.edges.clear();
-        this.dyaw = this.dpitch = 0;
-        this.snap = 0;
-        this.slot = null;
-        this.iceToggle = false;
-        return frame;
-    }
-}
-exports.InputState = InputState;
   },
   "./inventory.js": (require, exports) => {
 "use strict";

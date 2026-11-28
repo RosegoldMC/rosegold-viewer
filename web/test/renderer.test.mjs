@@ -161,7 +161,7 @@ test("textured mode is reported only after upload; overlays stay untextured; con
   assert.equal(draws[0][5], 1);
   assert.equal(draws[1][5], 0, "path overlay is untextured");
   assert.equal(scene.pointers.some(([index]) => index >= 2), true);
-  const texturedMesh = scene.uploads.find(u => u.data.length === 504).data;
+  const texturedMesh = scene.uploads.find(u => u.data.length === 576).data;
   assert.deepEqual([...texturedMesh.subarray(11, 13)], [0, 0]);
   scene.setLost(true);
   assert.deepEqual(flags, [true, false]);
@@ -308,8 +308,8 @@ test("cutout terrain discards transparent texels, legacy tiles fall back to soli
   const renderer = new TerrainRenderer(scene.canvas, { airStateIds: [0] });
   const fragment = scene.sources[1];
   const terrainBranch = fragment.slice(fragment.indexOf("if (u_textured && v_tile.x < 254.5)"));
-  assert.match(terrainBranch, /if \(sampled\.a < 0\.5\) \{\s+if \(v_material == 1\.0\) discard;\s+color = vec4\(v_color, 1\.0\);\s+return;\s+\}\s+color = vec4\(sampled\.rgb, 1\.0\);\s+return;\s+\}\s+color = vec4\(v_color, 1\.0\);/);
-  assert.match(terrainBranch, /if \(u_water\) \{\s+if \(sampled\.a < 0\.004\) discard;\s+color = vec4\(sampled\.rgb \* vec3\(0\.247, 0\.463, 0\.894\), sampled\.a\);/);
+  assert.match(terrainBranch, /if \(sampled\.a < 0\.5\) \{\s+if \(v_material == 1\.0\) discard;\s+color = vec4\(v_color \* v_shade, 1\.0\);\s+return;\s+\}\s+color = vec4\(sampled\.rgb \* v_shade, 1\.0\);\s+return;\s+\}\s+color = vec4\(v_color \* v_shade, 1\.0\);/);
+  assert.match(terrainBranch, /if \(u_water\) \{\s+if \(sampled\.a < 0\.004\) discard;\s+color = vec4\(sampled\.rgb \* vec3\(0\.247, 0\.463, 0\.894\) \* v_shade, sampled\.a\);/);
   assert.match(fragment, /if \(!u_textured \|\| v_tile\.x > 254\.5\) discard;[\s\S]*if \(stage\.a < 0\.004\) discard;/);
   renderer.dispose();
 });
@@ -335,7 +335,7 @@ test("crack overlay needs an opaque target and ignores non-opaque neighbors", t 
   renderer.dispose();
 });
 
-test("terrain uses packed 14-byte short vertices with a cutout attribute that overlays and paths never see", t => {
+test("terrain uses packed 16-byte short vertices with cutout and shade attributes that overlays and paths never see", t => {
   const scene = fakeCanvas(t);
   const renderer = new TerrainRenderer(scene.canvas, { airStateIds: [0] });
   const states = new Uint16Array(4096);
@@ -346,14 +346,15 @@ test("terrain uses packed 14-byte short vertices with a cutout attribute that ov
   renderer.setBreaking({ position: [0, 0, 0], stage: 1 });
   renderer.setPaths([{ name: "p", color: 0xffffff, points: [[1, 1, 1], [2, 2, 2]] }]);
   scene.draw();
-  const terrain = scene.pointers.slice(0, 5);
+  const terrain = scene.pointers.slice(0, 6);
   assert.deepEqual(terrain, [
-    [0, 3, 14, 0, "SHORT", false], [1, 3, 14, 6, "UNSIGNED_BYTE", true], [2, 2, 14, 9, "UNSIGNED_BYTE", false],
-    [3, 2, 14, 11, "UNSIGNED_BYTE", false], [4, 1, 14, 13, "UNSIGNED_BYTE", false],
+    [0, 3, 16, 0, "SHORT", false], [1, 3, 16, 6, "UNSIGNED_BYTE", true], [2, 2, 16, 9, "UNSIGNED_BYTE", false],
+    [3, 2, 16, 11, "UNSIGNED_BYTE", false], [4, 1, 16, 13, "UNSIGNED_BYTE", false], [5, 1, 16, 14, "UNSIGNED_BYTE", true],
   ]);
-  const later = scene.pointers.slice(5);
-  assert.ok(later.every(([index, , stride]) => index !== 4 && stride !== 14), "break and path vertices stay float");
+  const later = scene.pointers.slice(6);
+  assert.ok(later.every(([index, , stride]) => index < 4 && stride !== 16), "break and path vertices stay float");
   assert.equal(scene.enabledAttribs().has(4), false, "cutout attribute is disabled after the frame");
+  assert.equal(scene.enabledAttribs().has(5), false, "shade attribute is disabled after the frame");
   renderer.dispose();
 });
 

@@ -1,3 +1,4 @@
+import { HotbarWheel, wheelHotbar } from "./input.js";
 import { loadAtlas, ProtocolAtlas, type Atlas } from "./atlas.js";
 import { ViewerFeed, type ChatResult, type FeedStatus } from "./feed.js";
 import { TerrainRenderer } from "./renderer.js";
@@ -155,6 +156,7 @@ const terrain = new ViewerTerrain(air => {
   active = renderer;
   return renderer;
 }, renderer => createEntitySink(renderer as TerrainRenderer, entityPack));
+const hotbarWheel = new HotbarWheel();
 const hud = new ViewerHud({
   show(state) {
     shownHud = state;
@@ -458,7 +460,10 @@ touchRoot.addEventListener("click", event => {
 });
 hudRoot.querySelector("#hud-slots")!.addEventListener("click", event => {
   const index = hudSlots.indexOf((event.target as HTMLElement).closest<HTMLElement>("li")!);
-  if (touchMode && index >= 0) control.touchSlot(index);
+  if (touchMode && index >= 0) {
+    if (control.playReady && shownHud) hotbarWheel.note(shownHud.selected, index, performance.now());
+    control.touchSlot(index);
+  }
 });
 function chooseOp() {
   const pressed = touchOps.find(button => button.getAttribute("aria-pressed") === "true");
@@ -530,6 +535,7 @@ restartYes.addEventListener("click", () => {
 });
 for (const button of returnButtons) button.addEventListener("click", () => control.returnToScript());
 
+document.addEventListener("pointerlockchange", () => hotbarWheel.reset());
 document.addEventListener("pointerlockchange", () => control.lockChanged(document.pointerLockElement === canvas));
 document.addEventListener("pointerlockerror", () => control.lockDenied());
 const CTRL_PLAY_KEYS = new Set(["ControlLeft", "KeyW", "KeyA", "KeyS", "KeyD", "Space", "ShiftLeft", "ShiftRight"]);
@@ -556,7 +562,9 @@ document.addEventListener("keydown", event => {
     event.preventDefault();
     return;
   }
+  const wasReady = control.playReady;
   if (control.keyDown(event.code, event.repeat)) event.preventDefault();
+  if (digit && wasReady && !event.repeat && shownHud) hotbarWheel.note(shownHud.selected, Number(digit[1]) - 1, performance.now());
 });
 document.addEventListener("keyup", event => control.keyUp(event.code));
 canvas.addEventListener("mousedown", event => {
@@ -566,17 +574,27 @@ canvas.addEventListener("mousedown", event => {
   control.mouseDown(event.button);
 });
 document.addEventListener("mouseup", event => control.mouseUp(event.button));
+canvas.addEventListener("wheel", event => wheelHotbar(event, {
+  captured: control.mode === "play" && document.pointerLockElement === canvas,
+  ready: control.playReady,
+  selected: shownHud?.selected ?? null,
+  now: performance.now(),
+  wheel: hotbarWheel,
+  choose: slot => control.touchSlot(slot),
+}), { passive: false });
 canvas.addEventListener("contextmenu", event => event.preventDefault());
 document.addEventListener("mousemove", event => {
   if (document.pointerLockElement === canvas) control.mouseMove(event.movementX, event.movementY);
 });
 window.addEventListener("blur", () => {
+  hotbarWheel.reset();
   control.focusLost();
   cancelTouch();
 });
 
 function updateVisibility() {
   if (document.visibilityState === "hidden") {
+    hotbarWheel.reset();
     control.focusLost();
     cancelTouch();
   }

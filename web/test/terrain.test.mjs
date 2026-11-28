@@ -42,7 +42,7 @@ test("meshes x-fastest, then z, then y, with outward facing triangles", () => {
   assert.equal(cellIndex(2, 3, 5), 850);
   const vertices = world.mesh(position);
   assert.equal(VERTEX_POSITION_SCALE, 32);
-  assert.equal(VERTEX_STRIDE, 14);
+  assert.equal(VERTEX_STRIDE, 16);
   assert.equal(vertices.length, 6 * bytesPerFace);
   const xyz = [new Set(), new Set(), new Set()];
   for (let i = 0; i < vertices.length; i += VERTEX_STRIDE) {
@@ -561,4 +561,61 @@ test("uses loaded geometry, cutout material and bound tiles and forgets them whe
   assert.equal(faceCount(world, origin), 6, "opaque neighbor culls the bound quad but still draws its own face");
   world.setTextures(null);
   assert.equal(faceCount(world, origin), 16);
+});
+
+const SHADE_OFFSET = 14;
+const brightness = (vertices, index) => 1 - vertices[index + SHADE_OFFSET] / 255;
+const faceOf = n => {
+  const axis = n.findIndex(value => value !== 0);
+  return axis * 2 + (n[axis] > 0 ? 0 : 1);
+};
+
+test("opaque cube faces carry directional shade and ignore the base color", () => {
+  const world = new Terrain([0]);
+  world.replaceSection(origin, section([4, 4, 4]));
+  const vertices = world.mesh(origin);
+  const expected = [0.6, 0.6, 1, 0.5, 0.8, 0.8];
+  const seen = new Set();
+  for (let i = 0; i < vertices.length; i += bytesPerFace) {
+    const face = faceOf(normal(vertices, i));
+    seen.add(face);
+    for (let v = 0; v < 6; v++) {
+      assert.ok(Math.abs(brightness(vertices, i + v * VERTEX_STRIDE) - expected[face]) < 1 / 255);
+      assert.equal(vertices[i + v * VERTEX_STRIDE + SHADE_OFFSET + 1], 0);
+    }
+  }
+  assert.equal(seen.size, 6);
+});
+
+test("model quads shade by outward geometry, including rotated stairs; crossed planes stay unshaded", () => {
+  const world = new Terrain([0]);
+  world.replaceSection(origin, section([0, 0, 0, 2]));
+  for (const model of ["stairs", "fence"]) {
+    world.setTextures({ columns: 4, tilesFor: () => [0, 1, 2, 3, 4, 5], modelFor: () => model, variantFor: () => 3 });
+    const vertices = world.mesh(origin);
+    assert.ok(vertices, model);
+    for (let i = 0; i < vertices.length; i += 6 * VERTEX_STRIDE) {
+      const n = normal(vertices, i);
+      const face = faceOf(n);
+      assert.ok(Math.abs(brightness(vertices, i) - [0.6, 0.6, 1, 0.5, 0.8, 0.8][face]) < 1 / 255, `${model} face ${face}`);
+    }
+  }
+  world.setTextures({ columns: 4, tilesFor: () => [0, 0, 0, 0, 0, 0], modelFor: () => "cross" });
+  const cross = world.mesh(origin);
+  for (let i = 0; i < cross.length; i += VERTEX_STRIDE) assert.equal(cross[i + SHADE_OFFSET], 0);
+});
+
+test("shading leaves tile, cutout and liquid material bytes unchanged and covers water faces", () => {
+  const world = new Terrain([0]);
+  world.replaceSection(origin, section([0, 0, 0, 100]));
+  world.setTextures({ columns: 4, tilesFor: () => [1, 1, 0, 0, 1, 1], modelFor: () => "water", variantFor: () => 0 });
+  const vertices = world.mesh(origin, true);
+  const tops = [], sides = [];
+  for (let i = 0; i < vertices.length; i += bytesPerFace) {
+    const face = faceOf(normal(vertices, i));
+    (face === 2 ? tops : sides).push([face, brightness(vertices, i)]);
+    assert.ok(vertices[i + 13] >= 2, "liquid material byte preserved");
+  }
+  assert.ok(tops.every(([, b]) => b === 1));
+  assert.ok(sides.every(([face, b]) => Math.abs(b - [0.6, 0.6, 0, 0.5, 0.8, 0.8][face]) < 1 / 255));
 });
